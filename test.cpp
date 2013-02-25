@@ -89,7 +89,7 @@ void testMerge() {
   }
   out.close();
   mixture.merge(2);
-  out.open("amerge.txt")
+  out.open("amerge.txt");
   for (int i = 0; i < mixture.size(); ++i) {
     out << mixture.at(i).getWeight() << ",";
     out << mixture.at(i).getMean()(0) << ",";
