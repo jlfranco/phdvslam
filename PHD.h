@@ -180,7 +180,7 @@ std::vector<cv::Vec<double, D> > sampleMVGaussian (
     for (int j = 0; j < D; ++j) {
       randVector(j) = rng.gaussian(1.0);
     }
-    samples.push_back(dCov * randVector);
+    samples.push_back(dCov * randVector + mean);
   }
   return samples;
 }
