@@ -1,4 +1,6 @@
 #include "PHD.h"
+#include <iostream>
+#include <fstream>
 
 void testCholesky () {
   cv::Matx<double, 5, 5> A1 = cv::Matx<double, 5, 5>::eye();
@@ -74,10 +76,29 @@ void testMerge() {
     elements.push_back(W2);
   }
   GaussianMixture<2> mixture(elements);
-  std::cout << "Size is " << mixture.size() << std::endl <<
-    "Merging..." << std::endl;
+  std::ofstream out;
+  out.open("bmerge.txt");
+  for (int i = 0; i < mixture.size(); ++i) {
+    out << mixture.at(i).getWeight() << ",";
+    out << mixture.at(i).getMean()(0) << ",";
+    out << mixture.at(i).getMean()(1) << ",";
+    out << mixture.at(i).getCov()(0, 0) << ",";
+    out << mixture.at(i).getCov()(0, 1) << ",";
+    out << mixture.at(i).getCov()(1, 0) << ",";
+    out << mixture.at(i).getCov()(1, 1) << "\n";
+  }
+  out.close();
   mixture.merge(2);
-  std::cout << "Size is " << mixture.size() << std::endl;
+  out.open("amerge.txt")
+  for (int i = 0; i < mixture.size(); ++i) {
+    out << mixture.at(i).getWeight() << ",";
+    out << mixture.at(i).getMean()(0) << ",";
+    out << mixture.at(i).getMean()(1) << ",";
+    out << mixture.at(i).getCov()(0, 0) << ",";
+    out << mixture.at(i).getCov()(0, 1) << ",";
+    out << mixture.at(i).getCov()(1, 0) << ",";
+    out << mixture.at(i).getCov()(1, 1) << "\n";
+  }
 }
 
 int main() {
