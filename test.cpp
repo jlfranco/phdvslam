@@ -1,4 +1,4 @@
-#include "PHD.h"
+#include "PHD.hpp"
 #include <iostream>
 #include <fstream>
 
@@ -68,8 +68,8 @@ void testMerge() {
     P2 = cv::Matx<double, 2, 2>::zeros();
     P2 << 0.4 + cv::theRNG().gaussian(0.04), 0, 0.2+cv::theRNG().gaussian(0.1),
        0.7 + cv::theRNG().gaussian(0.05);
-    P1 += P1.t();
-    P2 += P2.t();
+    P1 = 0.05*(P1 + P1.t());
+    P2 = 0.05*(P2 + P2.t());
     W1 = WeightedGaussian<2>(1., M1[0], P1);
     W2 = WeightedGaussian<2>(1., M2[0], P2);
     elements.push_back(W1);
