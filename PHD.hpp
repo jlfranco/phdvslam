@@ -108,17 +108,17 @@ class MeasurementModel {
 };
 
 template <int D>
-class ConstantPositionMotionModel: public MotionModel {
+class ConstantPositionMotionModel: public MotionModel<D> {
   public:
     ConstantPositionMotionModel(cv::Matx<double, D, D> procNoise);
     cv::Vec<double, D> predict(cv::Vec<double, D> x) {return x;};
-}
+};
 
 template <int D, int M>
 class GMPHDFilter {
   protected:
-    MotionModel * mMotionModel;
-    MeasurementModel * mMeasurementModel;
+    MotionModel<D> * mMotionModel;
+    MeasurementModel<D, M> * mMeasurementModel;
     GaussianMixture<D> mPHD;
     void predictLinear();
     void predictNonLinear();
@@ -126,13 +126,15 @@ class GMPHDFilter {
     void updateNonLinear(std::vector<cv::Vec<double, M> > measurements);
   public:
     // FIXME Default constructor? PHDFilter();
-    PHDFilter(MotionModel * motionModel, MeasurementModel * measurementModel,
+    GMPHDFilter(MotionModel<D> * motionModel,
+        MeasurementModel<D, M> * measurementModel,
         double ps = 0.99, double pd = 0.9, double k = 3e-3,
         double mt = 1., double trit = 1e-3, int trut = 120);
     // Accessors
-    GaussianMixture<d> getPHD() {return mPHD;};
-    MotionModel * getMotionModel() {return mMotionModel;};
-    MotionModel * getMeasurementModel() {return mMeasurementModel;};
+    GaussianMixture<D> getPHD() {return mPHD;};
+    MotionModel<D> * getMotionModel() {return mMotionModel;};
+    MeasurementModel<D, M> * getMeasurementModel() {
+      return mMeasurementModel;};
     // Methods
     void predict();
     void update(std::vector<cv::Vec<double, M> >);
@@ -386,9 +388,9 @@ void GaussianMixture<D> :: truncate (unsigned int threshold) {
 template <int D>
 ConstantPositionMotionModel<D> :: ConstantPositionMotionModel(
     cv::Matx<double, D, D> procNoise) {
-  mIsLinear = true;
-  mJacobian = cv::Matx<double, D, D>::eye();
-  mProcNoise = procNoise;
+  this->mIsLinear = true;
+  this->mJacobian = cv::Matx<double, D, D>::eye();
+  this->mProcNoise = procNoise;
 }
 
 template <int D, int M>
@@ -396,7 +398,7 @@ void GMPHDFilter<D, M> :: predictLinear() {
   typename std::vector<WeightedGaussian<D> >::iterator it;
   cv::Matx<double, D, D> J = mMotionModel->getJacobian();
   cv::Matx<double, D, D> Q = mMotionModel->getProcNoise();
-  for (it = mPHD.mComponents.begin(); it != mComponents.end(); ++it) {
+  for (it = mPHD.mComponents.begin(); it != mPHD.mComponents.end(); ++it) {
     // Scale weight according to probability of survival
     it->setWeight(mProbSurvival * it->getWeight());
     // Use the predict method of the motion model
@@ -419,20 +421,20 @@ void GMPHDFilter<D, M> :: updateLinear(
   std::vector<WeightedGaussian<D> > prior(mPHD.mComponents);
   // Components for updated terms
   std::vector<cv::Vec<double, M> > eta;
-  std::vector<cv::Matx<double, M, M> S;
-  std::vector<cv::Matx<double, D, M> K;
-  std::vector<cv::Matx<double, D, D> P;
-  R = mMeasurementModel.getMeasNoise();
-  H = mMeasurementModel.getJacobian();
-  ID = cv::Matx<double, D, D>::eye();
+  std::vector<cv::Matx<double, M, M> > S;
+  std::vector<cv::Matx<double, D, M> > K;
+  std::vector<cv::Matx<double, D, D> > P;
+  cv::Matx<double, M, M> R = mMeasurementModel->getMeasNoise();
+  cv::Matx<double, D, M> H = mMeasurementModel->getJacobian();
+  cv::Matx<double, D, D> ID = cv::Matx<double, D, D>::eye();
   typename std::vector<WeightedGaussian<D> >::iterator it;
   typename std::vector<cv::Vec<double, D> >::iterator jt;
   // Update previous weights and compute elements for update
-  for (it = mPHD.mComponents.begin(); it != mComponents.end(); ++it) {
+  for (it = mPHD.mComponents.begin(); it != mPHD.mComponents.end(); ++it) {
     eta.push_back(H * it->getMean());
     S.push_back(R + H * (it->getCov()) * H.t());
     K.push_back((it->getCov()) * H.t() * S.back().inv());
-    P.push_back((I - K.back() * H)*(it->getCov()));
+    P.push_back((ID - K.back() * H)*(it->getCov()));
     // Scale weight according to probability of detection
     it->setWeight((1 - mProbDetection) * it->getWeight());
   }
@@ -450,15 +452,19 @@ void GMPHDFilter<D, M> :: updateLinear(
   //TODO Finish this
 }
 
-
-
+template <int D, int M>
+void GMPHDFilter<D, M> :: updateNonLinear(
+    std::vector<cv::Vec<double, M> > measurements) {
+  // UK PHD Update
+  // TODO Implement
+}
 
 
 
 
 template <int D, int M>
-GMPHDFilter<D, M> :: GMPHDFilter(MotionModel * motionModel,
-    MeasurementModel * measurementModel, double ps, double pd,
+GMPHDFilter<D, M> :: GMPHDFilter(MotionModel<D> * motionModel,
+    MeasurementModel<D, M> * measurementModel, double ps, double pd,
     double k, double mt, double trit, int trut) {
   mMotionModel = motionModel;
   mMeasurementModel = measurementModel;
@@ -483,8 +489,8 @@ template <int D, int M>
 void GMPHDFilter<D, M> :: update(
     std::vector<cv::Vec<double, M> > measurements) {
   if (mMeasurementModel->isLinear()) {
-    updateLinear(std::vector<cv::Vec<double, M> > measurements);
+    updateLinear(measurements);
   } else {
-    updateNonLinear(std::vector<cv::Vec<double, M> > measurements);
+    updateNonLinear(measurements);
   }
 }
