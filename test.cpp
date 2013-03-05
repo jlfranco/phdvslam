@@ -1,4 +1,5 @@
 #include "PHD.hpp"
+#include "opencv2/highgui/highgui.hpp"
 #include <iostream>
 #include <fstream>
 
@@ -101,7 +102,86 @@ void testMerge() {
   }
 }
 
+std::vector<cv::Vec<double, 2> > simMeasurements(
+    std::vector<cv::Vec<double, 2> > GT) {
+  std::vector<cv::Vec<double, 2> > sim;
+  cv::RNG rng = cv::theRNG();
+  cv::Matx<double, 2, 2> measCov = (0.01)*cv::Matx<double, 2, 2>::eye();
+  double Pd = 0.9;
+  // Generate clutter
+  int nc = samplePoisson(0.01);
+  cv::Vec<double, 2> clutter;
+  for (int i = 0; i < nc; ++i) {
+    std::cout << "*";
+    clutter(0) = 10*cv::randu<double>();
+    clutter(1) = 10*cv::randu<double>();
+    sim.push_back(clutter);
+  }
+  // Generate measurements
+  std::vector<cv::Vec<double, 2> >::iterator it;
+  for (it = GT.begin(); it != GT.end(); ++it) {
+    if (cv::randu<double>() < Pd) {
+      sim.push_back(sampleMVGaussian<2>(*it, measCov, 1).back());
+    }
+  }
+  return sim;
+}
+
+void testSim(){
+  std::vector<cv::Vec<double, 2> > GT;
+  cv::Vec<double, 2> C;
+  C << 5, 5;
+  GT.push_back(C);
+  std::vector<cv::Vec<double, 2> > meas;
+  while (cv::waitKey(1000) != 'q') {
+    meas.clear();
+    meas = simMeasurements(GT);
+    for (int i = 0; i < meas.size(); ++i) {
+      std::cout << meas[i] << std::endl;
+    }
+    std::cout << "---" << std::endl;
+  }
+}
+
+void testCtPHD(){
+  cv::Matx<double, 2, 2> procNoise = 1e-3*cv::Matx<double, 2, 2>::eye();
+  cv::Matx<double, 2, 2> measNoise = 0.01*cv::Matx<double, 2, 2>::eye();
+  ConstantPositionMotionModel<2> cpmm(procNoise);
+  IdentityMeasurementModel<2> imm(measNoise);
+  GMPHDFilter<2, 2> filter(&cpmm, &imm, 0.99, 0.9, 0.0001, 2, 1e-5, 120);
+  filter.mTruncThreshold = 10;
+  std::vector<cv::Vec<double, 2> > GT;
+  cv::Vec<double, 2> C1;
+  C1 << 2, 2;
+  GT.push_back(C1);
+  cv::Vec<double, 2> C2;
+  C2 << 8, 8;
+  GT.push_back(C2);
+  std::vector<cv::Vec<double, 2> > measurements = simMeasurements(GT);
+  std::vector<cv::Vec<double, 2> > prevMeasurements;
+  std::vector<cv::Vec<double, 2> > stateEstimate;
+  double estimNo;
+  for(int t = 0; t < 50; ++t) {
+    prevMeasurements = measurements;
+    measurements = simMeasurements(GT);
+    filter.predict();
+    filter.birth(prevMeasurements);
+    filter.update(measurements);
+    stateEstimate = filter.getStateEstimate();
+    estimNo = 0.;
+    for(int i = 0; i < filter.getPHD().size(); ++i) {
+      estimNo += filter.getPHD().at(i).getWeight();
+    }
+    std::cout << "[" << t << "]: [" << filter.getPHD().size() << " - "
+      << estimNo << "] ";
+    for (int i = 0; i < stateEstimate.size(); ++i) {
+      std::cout << stateEstimate[i] << " ";
+    }
+    std::cout << std::endl;
+  }
+}
+
 int main() {
-  testMerge();
+  testCtPHD();
   return 0;
 }

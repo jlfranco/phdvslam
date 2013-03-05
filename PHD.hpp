@@ -1,7 +1,7 @@
 #include <cmath>
 #include <vector>
 #include <iostream>
-#include "opencv2/opencv.hpp"
+#include "opencv2/core/core.hpp"
 
 /* Classes */
 
@@ -28,9 +28,9 @@ class WeightedGaussian {
     cv::Vec<double, D> getMean() const {return mMean;};
     cv::Matx<double, D, D> getCov() const {return mCov;};
     int getDim() const {return mDim;};
-    void setWeight (double & weight) {mWeight = weight;};
-    void setMean (cv::Vec<double, D> & mean) {mMean = mean;};
-    void setCov (cv::Matx<double, D, D> & cov) {mCov = cov;};
+    void setWeight (double weight) {mWeight = weight;};
+    void setMean (cv::Vec<double, D> mean) {mMean = mean;};
+    void setCov (cv::Matx<double, D, D> cov) {mCov = cov;};
     // Operators
     // Assignment operator
     WeightedGaussian<D> & operator= (const WeightedGaussian<D> & src);
@@ -55,7 +55,7 @@ class GaussianMixture {
     GaussianMixture(std::vector<WeightedGaussian<D> > components);
     // Accessors
     WeightedGaussian<D> & at (int i) {return mComponents.at(i);};
-    int size () { return mComponents.size();}
+    int size () { return mComponents.size(); }
     void add (WeightedGaussian <D> gm) {mComponents.push_back(gm);};
     // Methods
     double evaluate(cv::Vec<double, D> argument);
@@ -74,7 +74,7 @@ class MotionModel {
     cv::Matx<double, D, D> mJacobian;
     cv::Matx<double, D, D> mProcNoise;
   public:
-    cv::Vec<double, D> predict(cv::Vec<double, D> x) = 0;
+    virtual cv::Vec<double, D> predict(cv::Vec<double, D> x) = 0;
     // Accessors
     bool isLinear() const {return mIsLinear;};
     cv::Matx<double, D, D> getJacobian() const {return mJacobian;};
@@ -94,7 +94,8 @@ class MeasurementModel {
     cv::Matx<double, D, M> mJacobian;
     cv::Matx<double, M, M> mMeasNoise;
   public:
-    cv::Vec<double, M> predict(cv::Vec<double, D> x) = 0;
+    virtual cv::Vec<double, M> predict(cv::Vec<double, D> x) = 0;
+    virtual WeightedGaussian<D> inverse(cv::Vec<double, M> z) = 0;
     // Accessors
     bool isLinear() const {return mIsLinear;};
     cv::Matx<double, D, M> getJacobian() const {return mJacobian;};
@@ -114,6 +115,30 @@ class ConstantPositionMotionModel: public MotionModel<D> {
     cv::Vec<double, D> predict(cv::Vec<double, D> x) {return x;};
 };
 
+// Here we omit the second template parameter since we assume D==M
+template <int D>
+class IdentityMeasurementModel: public MeasurementModel<D, D> {
+  public:
+    IdentityMeasurementModel(cv::Matx<double, D, D> measNoise);
+    cv::Vec<double, D> predict(cv::Vec<double, D> x) {return x;};
+    WeightedGaussian<D> inverse(cv::Vec<double, D> z);
+};
+
+/* Basic class to store GMPHD filter parameters */
+class GMPHDFilterParams {
+  public:
+    double mProbSurvival;
+    double mProbDetection;
+    double mClutterDensity;
+    double mMergeThreshold;
+    double mTrimThreshold;
+    int mTruncThreshold;
+    GMPHDFilterParams(double ps = 0.99, double pd = 0.9, double k = 0.005,
+        double mt = 1., double trit = 1e-3, int trut = 120){
+      mProbSurvival = ps; mProbDetection = pd; mClutterDensity = k;
+      mMergeThreshold = mt; mTrimThreshold = trit; mTruncThreshold = trut;}
+};
+
 template <int D, int M>
 class GMPHDFilter {
   protected:
@@ -128,7 +153,7 @@ class GMPHDFilter {
     // FIXME Default constructor? PHDFilter();
     GMPHDFilter(MotionModel<D> * motionModel,
         MeasurementModel<D, M> * measurementModel,
-        double ps = 0.99, double pd = 0.9, double k = 3e-3,
+        double ps = 0.99, double pd = 0.9, double k = 0.005,
         double mt = 1., double trit = 1e-3, int trut = 120);
     // Accessors
     GaussianMixture<D> getPHD() {return mPHD;};
@@ -137,9 +162,11 @@ class GMPHDFilter {
       return mMeasurementModel;};
     // Methods
     void predict();
+    void birth(std::vector<cv::Vec<double, M> >);
     void update(std::vector<cv::Vec<double, M> >);
     std::vector<cv::Vec<double, D> > getStateEstimate();
     // Parameters
+    GMPHDFilterParams mParams;
     double mProbSurvival;
     double mProbDetection;
     double mClutterDensity;
@@ -188,10 +215,28 @@ double MVNormalPDF (cv::Vec<double, D> mean,
     cv::Matx<double, D, D> cov,
     cv::Vec<double, D> x) {
   double d = double(D);
+  cv::Vec<double, 1> arg = (x - mean).t() * cov.inv() * (x - mean);
   double val = pow(2*M_PI, -d/2) * pow(cv::determinant(cov), -0.5) *
-    exp( -0.5 * (x - mean).t() * cov.inv() * (x - mean) );
+    exp( -0.5 * arg(0) );
   return val;
 }
+
+/* This implementation is based on the method by Knuth. Perhaps inverse
+ * transform sampling can be more efficient if an efficient form of the
+ * Poisson CDF is used */
+int samplePoisson(double lambda) {
+  double L = exp(-lambda);
+  double p = cv::randu<double>();
+  int k = 1;
+  while(p > L) {
+    k++;
+    p *= cv::randu<double>();
+  }
+  return --k;
+}
+
+/* This function randomly generates a number of vectors from a multivariate
+ * normal distribution, with the given means and covariances. */
 
 template <int D>
 std::vector<cv::Vec<double, D> > sampleMVGaussian (
@@ -267,12 +312,9 @@ double WeightedGaussian<D> :: evaluate (cv::Vec<double, D> x) {
   return val;
 }
 
-/* The following is probably not required:
 template <int D>
 GaussianMixture<D> :: GaussianMixture () {
-  std::vector<WeightedGaussian<D> > mComponents;
 }
-*/
 
 template <int D>
 GaussianMixture<D> :: GaussianMixture (
@@ -393,6 +435,20 @@ ConstantPositionMotionModel<D> :: ConstantPositionMotionModel(
   this->mProcNoise = procNoise;
 }
 
+template <int D>
+IdentityMeasurementModel<D> :: IdentityMeasurementModel(
+    cv::Matx<double, D, D> measNoise) {
+  this->mIsLinear = true;
+  this->mJacobian = cv::Matx<double, D, D>::eye();
+  this->mMeasNoise = measNoise;
+}
+
+template <int D>
+WeightedGaussian<D> IdentityMeasurementModel<D> :: inverse(
+    cv::Vec<double, D> z) {
+  return WeightedGaussian<D>(1, z, this->mMeasNoise);
+}
+
 template <int D, int M>
 void GMPHDFilter<D, M> :: predictLinear() {
   typename std::vector<WeightedGaussian<D> >::iterator it;
@@ -400,7 +456,7 @@ void GMPHDFilter<D, M> :: predictLinear() {
   cv::Matx<double, D, D> Q = mMotionModel->getProcNoise();
   for (it = mPHD.mComponents.begin(); it != mPHD.mComponents.end(); ++it) {
     // Scale weight according to probability of survival
-    it->setWeight(mProbSurvival * it->getWeight());
+    it->setWeight( mParams.mProbSurvival * (it->getWeight()) );
     // Use the predict method of the motion model
     it->setMean( mMotionModel -> predict( it->getMean() ) );
     // Use Jacobian to predict covariance
@@ -436,20 +492,28 @@ void GMPHDFilter<D, M> :: updateLinear(
     K.push_back((it->getCov()) * H.t() * S.back().inv());
     P.push_back((ID - K.back() * H)*(it->getCov()));
     // Scale weight according to probability of detection
-    it->setWeight((1 - mProbDetection) * it->getWeight());
+    it->setWeight((1 - mParams.mProbDetection) * it->getWeight());
   }
   // Generate new Gaussian terms for each one of the measurements
   double nWeight;
+  double denominator = 0.;
   cv::Vec<double, D> nMean;
   for (jt = measurements.begin(); jt != measurements.end(); ++jt) {
     for (int i = 0; i < prior.size(); ++i) {
-      nWeight = mProbDetection * (it->getWeight()) * MVNormalPDF<M>(
-          eta[i], S[i], *jt );
+      nWeight = mParams.mProbDetection * (it->getWeight()) *
+          MVNormalPDF<M> (eta[i], S[i], *jt );
+      denominator += nWeight;
       nMean = prior[i].getMean() + K[i]*(*jt - eta[i]);
       mPHD.mComponents.push_back(WeightedGaussian<D>(nWeight, nMean, P[i]));
     }
+    // Complete the denominator for the new Gaussian terms and apply it
+    denominator += mParams.mClutterDensity;
+    for (int i = mPHD.mComponents.size() - measurements.size();
+        i < mPHD.mComponents.size(); ++i) {
+      mPHD.mComponents[i].setWeight(
+          mPHD.mComponents[i].getWeight() / denominator);
+    }
   }
-  //TODO Finish this
 }
 
 template <int D, int M>
@@ -459,21 +523,13 @@ void GMPHDFilter<D, M> :: updateNonLinear(
   // TODO Implement
 }
 
-
-
-
 template <int D, int M>
 GMPHDFilter<D, M> :: GMPHDFilter(MotionModel<D> * motionModel,
     MeasurementModel<D, M> * measurementModel, double ps, double pd,
     double k, double mt, double trit, int trut) {
   mMotionModel = motionModel;
   mMeasurementModel = measurementModel;
-  mProbSurvival = ps;
-  mProbDetection = pd;
-  mClutterDensity = k;
-  mMergeThreshold = mt;
-  mTrimThreshold = trit;
-  mTruncThreshold = trut;
+  mParams = GMPHDFilterParams(ps, pd, k, mt, trit, trut);
 }
 
 template <int D, int M>
@@ -493,4 +549,35 @@ void GMPHDFilter<D, M> :: update(
   } else {
     updateNonLinear(measurements);
   }
+  if (mPHD.mComponents.size() > mTruncThreshold){
+    mPHD.merge(mParams.mMergeThreshold);
+    mPHD.trim(mParams.mTrimThreshold);
+    mPHD.truncate(mParams.mTruncThreshold);
+  }
 }
+
+template <int D, int M>
+void GMPHDFilter<D, M> :: birth(
+    std::vector<cv::Vec<double, M> > measurements) {
+  typename std::vector<cv::Vec<double, M> >::iterator it;
+  WeightedGaussian<D> newComponent;
+  for (it = measurements.begin(); it != measurements.end(); ++it) {
+    newComponent = mMeasurementModel->inverse(*it);
+    newComponent.setWeight(0.2); // TODO Make this a parameter, param struct
+    mPHD.mComponents.push_back(newComponent);
+  }
+  mPHD.merge(mParams.mMergeThreshold);
+}
+
+template<int D, int M>
+std::vector<cv::Vec<double, D> > GMPHDFilter<D, M> :: getStateEstimate () {
+  typename std::vector<WeightedGaussian<D> >::iterator it;
+  std::vector<cv::Vec<double, D> > stateEstimate;
+  for (it = mPHD.mComponents.begin(); it != mPHD.mComponents.end(); ++it) {
+    if (it->getWeight() > 0.5) {
+      stateEstimate.push_back(it->getMean());
+    }
+  }
+  return stateEstimate;
+}
+
