@@ -147,7 +147,7 @@ void testCtPHD(){
   cv::Matx<double, 2, 2> measNoise = 0.01*cv::Matx<double, 2, 2>::eye();
   ConstantPositionMotionModel<2> cpmm(procNoise);
   IdentityMeasurementModel<2> imm(measNoise);
-  GMPHDFilter<2, 2> filter(&cpmm, &imm, 0.99, 0.9, 0.001, 1, 1e-6, 120);
+  GMPHDFilter<2, 2> filter(&cpmm, &imm, 0.99, 0.9, 0.001, 2, 1e-6, 120);
   filter.mTruncThreshold = 10;
   std::vector<cv::Vec<double, 2> > GT;
   cv::Vec<double, 2> C1;
@@ -157,14 +157,11 @@ void testCtPHD(){
   C2 << 8, 8;
   GT.push_back(C2);
   std::vector<cv::Vec<double, 2> > measurements = simMeasurements(GT);
-  std::vector<cv::Vec<double, 2> > prevMeasurements;
   std::vector<cv::Vec<double, 2> > stateEstimate;
   double estimNo;
   for(int t = 0; t < 50; ++t) {
-    prevMeasurements = measurements;
     measurements = simMeasurements(GT);
     filter.predict();
-    filter.birth(prevMeasurements);
     filter.update(measurements);
     stateEstimate = filter.getStateEstimate();
     estimNo = 0.;

@@ -162,7 +162,7 @@ class GMPHDFilter {
       return mMeasurementModel;};
     // Methods
     void predict();
-    void birth(std::vector<cv::Vec<double, M> >);
+    void birth(std::vector<cv::Vec<double, M> >); //TODO No longer necessary
     void update(std::vector<cv::Vec<double, M> >);
     std::vector<cv::Vec<double, D> > getStateEstimate();
     // Parameters
@@ -497,9 +497,18 @@ void GMPHDFilter<D, M> :: updateLinear(
   // Generate new Gaussian terms for each one of the measurements
   double nWeight;
   double denominator;
+  // Birth weight is determined as a function of clutter density and a factor
+  // of the trimming threshold.
+  double birthWeight = 1.1 * mParams.mClutterDensity * mParams.mTrimThreshold
+    / (1 - 1.1*mTrimThreshold);
+  WeightedGaussian<D> birthComponent;
   cv::Vec<double, D> nMean;
   for (jt = measurements.begin(); jt != measurements.end(); ++jt) {
-    denominator = 0;
+    denominator = birthWeight;
+    birthComponent = mMeasurementModel->inverse(*jt);
+    birthComponent.setWeight(birthWeight);
+    mPHD.mComponents.push_back(birthComponent);
+    // Add birth component
     for (int i = 0; i < prior.size(); ++i) {
       nWeight = mParams.mProbDetection * (it->getWeight()) *
           MVNormalPDF<M> (eta[i], S[i], *jt );
@@ -509,7 +518,7 @@ void GMPHDFilter<D, M> :: updateLinear(
     }
     // Complete the denominator for the new Gaussian terms and apply it
     denominator += mParams.mClutterDensity;
-    for (int i = mPHD.mComponents.size() - prior.size();
+    for (int i = mPHD.mComponents.size() - prior.size() - 1;
         i < mPHD.mComponents.size(); ++i) {
       mPHD.mComponents[i].setWeight(
           mPHD.mComponents[i].getWeight() / denominator);
@@ -555,6 +564,7 @@ void GMPHDFilter<D, M> :: update(
   mPHD.truncate(mParams.mTruncThreshold);
 }
 
+// TODO This is redundant given measurement driven births
 template <int D, int M>
 void GMPHDFilter<D, M> :: birth(
     std::vector<cv::Vec<double, M> > measurements) {
