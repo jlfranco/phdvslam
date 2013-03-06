@@ -510,7 +510,7 @@ void GMPHDFilter<D, M> :: updateLinear(
     mPHD.mComponents.push_back(birthComponent);
     // Add birth component
     for (int i = 0; i < prior.size(); ++i) {
-      nWeight = mParams.mProbDetection * (it->getWeight()) *
+      nWeight = mParams.mProbDetection * (prior[i].getWeight()) *
           MVNormalPDF<M> (eta[i], S[i], *jt );
       denominator += nWeight;
       nMean = prior[i].getMean() + K[i]*(*jt - eta[i]);

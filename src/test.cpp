@@ -143,11 +143,11 @@ void testSim(){
 }
 
 void testCtPHD(){
-  cv::Matx<double, 2, 2> procNoise = 1e-3*cv::Matx<double, 2, 2>::eye();
+  cv::Matx<double, 2, 2> procNoise = 0.01*cv::Matx<double, 2, 2>::eye();
   cv::Matx<double, 2, 2> measNoise = 0.01*cv::Matx<double, 2, 2>::eye();
   ConstantPositionMotionModel<2> cpmm(procNoise);
   IdentityMeasurementModel<2> imm(measNoise);
-  GMPHDFilter<2, 2> filter(&cpmm, &imm, 0.99, 0.9, 0.001, 2, 1e-6, 120);
+  GMPHDFilter<2, 2> filter(&cpmm, &imm, 0.99, 0.9, 0.001, 0.9, 1e-6, 120);
   filter.mTruncThreshold = 10;
   std::vector<cv::Vec<double, 2> > GT;
   cv::Vec<double, 2> C1;
