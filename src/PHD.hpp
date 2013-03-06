@@ -496,9 +496,10 @@ void GMPHDFilter<D, M> :: updateLinear(
   }
   // Generate new Gaussian terms for each one of the measurements
   double nWeight;
-  double denominator = 0.;
+  double denominator;
   cv::Vec<double, D> nMean;
   for (jt = measurements.begin(); jt != measurements.end(); ++jt) {
+    denominator = 0;
     for (int i = 0; i < prior.size(); ++i) {
       nWeight = mParams.mProbDetection * (it->getWeight()) *
           MVNormalPDF<M> (eta[i], S[i], *jt );
@@ -508,7 +509,7 @@ void GMPHDFilter<D, M> :: updateLinear(
     }
     // Complete the denominator for the new Gaussian terms and apply it
     denominator += mParams.mClutterDensity;
-    for (int i = mPHD.mComponents.size() - measurements.size();
+    for (int i = mPHD.mComponents.size() - prior.size();
         i < mPHD.mComponents.size(); ++i) {
       mPHD.mComponents[i].setWeight(
           mPHD.mComponents[i].getWeight() / denominator);
@@ -549,11 +550,9 @@ void GMPHDFilter<D, M> :: update(
   } else {
     updateNonLinear(measurements);
   }
-  if (mPHD.mComponents.size() > mTruncThreshold){
-    mPHD.merge(mParams.mMergeThreshold);
-    mPHD.trim(mParams.mTrimThreshold);
-    mPHD.truncate(mParams.mTruncThreshold);
-  }
+  mPHD.merge(mParams.mMergeThreshold);
+  mPHD.trim(mParams.mTrimThreshold);
+  mPHD.truncate(mParams.mTruncThreshold);
 }
 
 template <int D, int M>

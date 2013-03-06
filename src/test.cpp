@@ -105,11 +105,10 @@ void testMerge() {
 std::vector<cv::Vec<double, 2> > simMeasurements(
     std::vector<cv::Vec<double, 2> > GT) {
   std::vector<cv::Vec<double, 2> > sim;
-  cv::RNG rng = cv::theRNG();
   cv::Matx<double, 2, 2> measCov = (0.01)*cv::Matx<double, 2, 2>::eye();
   double Pd = 0.9;
   // Generate clutter
-  int nc = samplePoisson(0.01);
+  int nc = samplePoisson(0.1);
   cv::Vec<double, 2> clutter;
   for (int i = 0; i < nc; ++i) {
     std::cout << "*";
@@ -148,7 +147,7 @@ void testCtPHD(){
   cv::Matx<double, 2, 2> measNoise = 0.01*cv::Matx<double, 2, 2>::eye();
   ConstantPositionMotionModel<2> cpmm(procNoise);
   IdentityMeasurementModel<2> imm(measNoise);
-  GMPHDFilter<2, 2> filter(&cpmm, &imm, 0.99, 0.9, 0.0001, 2, 1e-5, 120);
+  GMPHDFilter<2, 2> filter(&cpmm, &imm, 0.99, 0.9, 0.001, 1, 1e-6, 120);
   filter.mTruncThreshold = 10;
   std::vector<cv::Vec<double, 2> > GT;
   cv::Vec<double, 2> C1;
