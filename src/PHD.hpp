@@ -169,12 +169,6 @@ class GMPHDFilter {
     std::vector<cv::Vec<double, D> > getStateEstimate();
     // Parameters
     GMPHDFilterParams mParams;
-    double mProbSurvival;
-    double mProbDetection;
-    double mClutterDensity;
-    double mMergeThreshold;
-    double mTrimThreshold;
-    int mTruncThreshold;
 };
 
 /* Functions */
@@ -502,7 +496,7 @@ void GMPHDFilter<D, M> :: updateLinear(
   // Birth weight is determined as a function of clutter density and a factor
   // of the trimming threshold.
   double birthWeight = 1.1 * mParams.mClutterDensity * mParams.mTrimThreshold
-    / (1 - 1.1*mTrimThreshold);
+    / (1 - 1.1*mParams.mTrimThreshold);
   WeightedGaussian<D> birthComponent;
   cv::Vec<double, D> nMean;
   for (jt = measurements.begin(); jt != measurements.end(); ++jt) {

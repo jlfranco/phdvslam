@@ -148,7 +148,6 @@ void testCtPHD(){
   ConstantPositionMotionModel<2> cpmm(procNoise);
   IdentityMeasurementModel<2> imm(measNoise);
   GMPHDFilter<2, 2> filter(&cpmm, &imm, 0.99, 0.9, 0.001, 0.9, 1e-6, 120);
-  filter.mTruncThreshold = 10;
   std::vector<cv::Vec<double, 2> > GT;
   cv::Vec<double, 2> C1;
   C1 << 2, 2;
