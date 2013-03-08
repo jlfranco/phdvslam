@@ -155,6 +155,9 @@ class GMPHDFilter {
         MeasurementModel<D, M> * measurementModel,
         double ps = 0.99, double pd = 0.9, double k = 0.005,
         double mt = 1., double trit = 1e-3, int trut = 120);
+    GMPHDFilter(MotionModel<D> * motionModel,
+        MeasurementModel<D, M> * measurementModel,
+        GMPHDFilterParams params);
     // Accessors
     GaussianMixture<D> getPHD() {return mPHD;};
     MotionModel<D> * getMotionModel() {return mMotionModel;};
@@ -541,6 +544,16 @@ GMPHDFilter<D, M> :: GMPHDFilter(MotionModel<D> * motionModel,
   mMeasurementModel = measurementModel;
   mParams = GMPHDFilterParams(ps, pd, k, mt, trit, trut);
 }
+
+template <int D, int M>
+GMPHDFilter<D, M> :: GMPHDFilter(MotionModel<D> * motionModel,
+    MeasurementModel<D, M> * measurementModel,
+    GMPHDFilterParams params) {
+  mMotionModel = motionModel;
+  mMeasurementModel = measurementModel;
+  mParams = params;
+}
+
 
 template <int D, int M>
 void GMPHDFilter<D, M> :: predict() {
