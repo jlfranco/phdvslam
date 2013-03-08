@@ -165,8 +165,7 @@ class GMPHDFilter {
       return mMeasurementModel;};
     // Methods
     void predict();
-    void birth(std::vector<cv::Vec<double, M> >); //TODO No longer necessary
-    void update(std::vector<cv::Vec<double, M> >);
+    void update(std::vector<cv::Vec<double, M> >); // Includes birth
     std::vector<cv::Vec<double, D> > getStateEstimate();
     // Parameters
     GMPHDFilterParams mParams;
@@ -575,20 +574,6 @@ void GMPHDFilter<D, M> :: update(
   mPHD.merge(mParams.mMergeThreshold);
   mPHD.trim(mParams.mTrimThreshold);
   mPHD.truncate(mParams.mTruncThreshold);
-}
-
-// TODO This is redundant given measurement driven births
-template <int D, int M>
-void GMPHDFilter<D, M> :: birth(
-    std::vector<cv::Vec<double, M> > measurements) {
-  typename std::vector<cv::Vec<double, M> >::iterator it;
-  WeightedGaussian<D> newComponent;
-  for (it = measurements.begin(); it != measurements.end(); ++it) {
-    newComponent = mMeasurementModel->inverse(*it);
-    newComponent.setWeight(0.2); // TODO Make this a parameter, param struct
-    mPHD.mComponents.push_back(newComponent);
-  }
-  mPHD.merge(mParams.mMergeThreshold);
 }
 
 template<int D, int M>
