@@ -91,17 +91,17 @@ template <int D, int M>
 class MeasurementModel {
   protected:
     bool mIsLinear;
-    cv::Matx<double, D, M> mJacobian;
+    cv::Matx<double, M, D> mJacobian;
     cv::Matx<double, M, M> mMeasNoise;
   public:
     virtual cv::Vec<double, M> predict(cv::Vec<double, D> x) = 0;
     virtual WeightedGaussian<D> inverse(cv::Vec<double, M> z) = 0;
     // Accessors
     bool isLinear() const {return mIsLinear;};
-    cv::Matx<double, D, M> getJacobian() const {return mJacobian;};
+    cv::Matx<double, M, D> getJacobian() const {return mJacobian;};
     cv::Matx<double, M, M> getMeasNoise() const {return mMeasNoise;};
     void setIsLinear(bool isLinear) {mIsLinear = isLinear;};
-    void setJacobian(cv::Matx<double, D, D> jacobian) {mJacobian = jacobian;};
+    void setJacobian(cv::Matx<double, M, D> jacobian) {mJacobian = jacobian;};
     void setMeasNoise(cv::Matx<double, M, M> measNoise) {
       mMeasNoise = measNoise;};
     // Operators
@@ -123,6 +123,12 @@ class IdentityMeasurementModel: public MeasurementModel<D, D> {
     cv::Vec<double, D> predict(cv::Vec<double, D> x) {return x;};
     WeightedGaussian<D> inverse(cv::Vec<double, D> z);
 };
+
+class DisparitySpaceMeasurementModel: public MeasurementModel<3, 2> {
+  public:
+    cv::Vec<double, 2> predict(cv::Vec<double, 3> x);
+    WeightedGaussian<3> inverse(cv::Vec<double, 2> z);
+}
 
 /* Basic class to store GMPHD filter parameters */
 class GMPHDFilterParams {
@@ -546,7 +552,6 @@ GMPHDFilter<D, M> :: GMPHDFilter(MotionModel<D> * motionModel,
   mMeasurementModel = measurementModel;
   mParams = params;
 }
-
 
 template <int D, int M>
 void GMPHDFilter<D, M> :: predict() {

@@ -150,11 +150,14 @@ void testCtPHD(){
   GMPHDFilter<2, 2> filter(&cpmm, &imm, 0.99, 0.9, 0.001, 0.9, 1e-6, 120);
   std::vector<cv::Vec<double, 2> > GT;
   cv::Vec<double, 2> C1;
-  C1 << 2, 2;
+  C1 << 2, 8;
   GT.push_back(C1);
   cv::Vec<double, 2> C2;
-  C2 << 8, 8;
+  C2 << 8, 2;
   GT.push_back(C2);
+  cv::Vec<double, 2> C3;
+  C3 << 5, 5;
+  GT.push_back(C3);
   std::vector<cv::Vec<double, 2> > measurements = simMeasurements(GT);
   std::vector<cv::Vec<double, 2> > stateEstimate;
   double estimNo;
