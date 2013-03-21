@@ -95,7 +95,7 @@ class MeasurementModel {
     cv::Matx<double, M, M> mMeasNoise;
   public:
     virtual cv::Vec<double, M> predict(cv::Vec<double, D> x) = 0;
-    virtual WeightedGaussian<D> inverse(cv::Vec<double, M> z) = 0;
+    virtual WeightedGaussian<D> invert(cv::Vec<double, M> z) = 0;
     // Accessors
     bool isLinear() const {return mIsLinear;};
     cv::Matx<double, M, D> getJacobian() const {return mJacobian;};
@@ -115,20 +115,55 @@ class ConstantPositionMotionModel: public MotionModel<D> {
     cv::Vec<double, D> predict(cv::Vec<double, D> x) {return x;};
 };
 
+// Represents the class of motion models where the state dynamics are linear, so
+// that the state at time k+1 can be obtained from multiplying a matrix by the
+// previous state
+
+template <int D>
+class LinearMotionModel: public MotionModel<D> {
+  public:
+    // This constructor uses the given dynamics matrix and process noise to
+    // build the motion model
+    LinearMotionModel(cv::Matx<double, D, D> dynamicsMatrix,
+        cv::Matx<double, D, D> procNoise);
+    // This constructor assumes that the dynamics matrix is the identity
+    // (Constant position)
+    LinearMotionModel(cv::Matx<double, D, D> procNoise);
+    // Uses the dynamics matrix to predict the next state, given that the
+    // current state is 'x'
+    cv::Vec<double, D> predict(cv::Vec<double, D> x);
+};
+
 // Here we omit the second template parameter since we assume D==M
 template <int D>
 class IdentityMeasurementModel: public MeasurementModel<D, D> {
   public:
     IdentityMeasurementModel(cv::Matx<double, D, D> measNoise);
     cv::Vec<double, D> predict(cv::Vec<double, D> x) {return x;};
-    WeightedGaussian<D> inverse(cv::Vec<double, D> z);
+    WeightedGaussian<D> invert(cv::Vec<double, D> z);
 };
 
-class DisparitySpaceMeasurementModel: public MeasurementModel<3, 2> {
+class DisparitySpaceMeasurementModel: public MeasurementModel<4, 3> {
+  protected:
+    cv::Matx<double, 3, 3> mIntrinsicMatrix;
+    cv::Vec<double, 3> mTranslation;
+    double mRoll;
+    double mPitch;
+    double mYaw;
   public:
-    cv::Vec<double, 2> predict(cv::Vec<double, 3> x);
-    WeightedGaussian<3> inverse(cv::Vec<double, 2> z);
-}
+    DisparitySpaceMeasurementModel();
+    DisparitySpaceMeasurementModel(cv::Matx<double, 3, 3> intrinsics,
+        cv::Vec<double, 3> translation, double roll, double pitch,
+        double yaw);
+    cv::Vec<double, 3> predict(cv::Vec<double, 3> x);
+    WeightedGaussian<4> invert(cv::Vec<double, 2> z);
+    cv::Vec<double, 4> toDisparity(cv::Vec<double, 3> vecXYZ,
+        cv::Matx<double, 3, 4> projMatrix);
+    cv::Vec<double, 4> fromDisparity(cv::Vec<double, 3> vecXYD,
+        cv::Matx<double, 3, 4> projMatrix);
+    cv::Matx<double, 3, 4> getBaseProjectionMatrix();
+    cv::Matx<double, 3, 4> getCurrentProjectionMatrix();
+};
 
 /* Basic class to store GMPHD filter parameters */
 class GMPHDFilterParams {
@@ -261,6 +296,24 @@ std::vector<cv::Vec<double, D> > sampleMVGaussian (
     samples.push_back(dCov * randVector + mean);
   }
   return samples;
+}
+
+/* Returns the rotation matrix that transforms a coordinate frame by rotation
+ * roll radians around the x axis, pitch radians around the y axis and finally
+ * yaw radians around the z axis */
+cv::Matx<double, 3, 3> RPYRotation(double roll, double pitch, double yaw) {
+  cv::Matx<double, 3, 3> rotation;
+  rotation <<
+  cos(pitch) * cos(yaw),
+  cos(roll) * sin(yaw) + sin(roll) * sin(pitch) * cos(yaw),
+  sin(roll) * sin(yaw) - cos(roll) * sin(pitch) * cos(yaw),
+  -cos(pitch)*sin(yaw),
+  cos(roll) * cos(yaw) - sin(roll) * sin(pitch) * sin(yaw),
+  sin(roll) * cos(yaw) + cos(roll) * sin(pitch) * sin(yaw),
+  sin(pitch),
+  -sin(roll) * cos(pitch),
+  cos(roll) * cos(pitch) ;
+  return rotation;
 }
 
 /* Implementation */
@@ -438,6 +491,26 @@ ConstantPositionMotionModel<D> :: ConstantPositionMotionModel(
 }
 
 template <int D>
+LinearMotionModel<D> :: LinearMotionModel (
+    cv::Matx<double, D, D> dynamicsMatrix, cv::Matx<double, D, D> procNoise) {
+  this->mIsLinear = true;
+  this->mJacobian = dynamicsMatrix;
+  this->mProcNoise = procNoise;
+}
+
+template <int D>
+LinearMotionModel<D> :: LinearMotionModel (cv::Matx<double, D, D> procNoise) {
+  this->mIsLinear = true;
+  this->mJacobian = cv::Matx<double, D, D>::eye();
+  this->mProcNoise = procNoise;
+}
+
+template <int D>
+cv::Vec<double, D> LinearMotionModel<D> :: predict (cv::Vec<double, D> x) {
+  return (this->mJacobian) * x;
+}
+
+template <int D>
 IdentityMeasurementModel<D> :: IdentityMeasurementModel(
     cv::Matx<double, D, D> measNoise) {
   this->mIsLinear = true;
@@ -446,10 +519,38 @@ IdentityMeasurementModel<D> :: IdentityMeasurementModel(
 }
 
 template <int D>
-WeightedGaussian<D> IdentityMeasurementModel<D> :: inverse(
+WeightedGaussian<D> IdentityMeasurementModel<D> :: invert(
     cv::Vec<double, D> z) {
   return WeightedGaussian<D>(1, z, this->mMeasNoise);
 }
+
+/*
+DisparitySpaceMeasurementModel :: DisparitySpaceMeasurementModel() {
+  mIntrinsicMatrix = cv::Matx<double, 3, 3>::eye();
+  mTranslation = cv::Vec<double, 3>::zeros();
+  mRoll = 0; mPitch = 0; mYaw = 0;
+}
+
+DisparitySpaceMeasurementModel :: DisparitySpaceMeasurementModel(
+    cv::Matx<double, 3, 3> intrinsics, cv::Vec<double, 3> translation,
+    double roll, double pitch, double yaw) {
+  mIntrinsicMatrix = intrinsics;
+  mTranslation = translation;
+  mRoll = roll; mPitch = pitch; mYaw = yaw;
+}
+
+cv::Matx<double, 3, 4>
+DisparitySpaceMeasurementModel :: getCurrentProjectionMatrix() {
+  cv::Matx<double, 3, 4> extrinsics = cv::Matx<double, 3, 4>::zeros();
+  extrinsics(cv::Range(0, 3), cv::Range(0, 3)) = 
+    RPYRotation(mRoll, mPitch, mYaw).t();
+  extrinsics(cv::Range(0, 3), cv::Range(3, 4)) = 
+    -1 * mTranslation;
+  extrinsics(2, 3) = 1;
+  cv::Matx<double, 3, 4> projMatrix = mIntrinsicMatrix * extrinsics;
+  return projMatrix;
+}
+*/
 
 template <int D, int M>
 void GMPHDFilter<D, M> :: predictLinear() {
@@ -507,10 +608,12 @@ void GMPHDFilter<D, M> :: updateLinear(
   cv::Vec<double, D> nMean;
   for (jt = measurements.begin(); jt != measurements.end(); ++jt) {
     denominator = birthWeight;
-    birthComponent = mMeasurementModel->inverse(*jt);
+    // Add birth component
+    birthComponent = mMeasurementModel->invert(*jt);
     birthComponent.setWeight(birthWeight);
     mPHD.mComponents.push_back(birthComponent);
-    // Add birth component
+    // Add components that account for every track's relation with received
+    // measurement
     for (int i = 0; i < prior.size(); ++i) {
       nWeight = mParams.mProbDetection * (prior[i].getWeight()) *
           MVNormalPDF<M> (eta[i], S[i], *jt );
