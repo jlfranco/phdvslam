@@ -136,7 +136,8 @@ class IdentityMeasurementModel: public MeasurementModel<D, D> {
     WeightedGaussian<D> invert(cv::Vec<double, D> z);
 };
 
-/*
+<<<<<<< HEAD
+=======
 class DisparitySpaceMeasurementModel: public MeasurementModel<4, 3> {
   protected:
     cv::Matx<double, 3, 3> mIntrinsicMatrix;
@@ -158,8 +159,8 @@ class DisparitySpaceMeasurementModel: public MeasurementModel<4, 3> {
     cv::Matx<double, 3, 4> getBaseProjectionMatrix();
     cv::Matx<double, 3, 4> getCurrentProjectionMatrix();
 };
-*/
 
+>>>>>>> disparitymm
 /* Basic class to store GMPHD filter parameters */
 class GMPHDFilterParams {
   public:
