@@ -108,13 +108,6 @@ class MeasurementModel {
     cv::Vec<double, M> operator()(cv::Vec<double, D> x) {return predict(x);};
 };
 
-template <int D>
-class ConstantPositionMotionModel: public MotionModel<D> {
-  public:
-    ConstantPositionMotionModel(cv::Matx<double, D, D> procNoise);
-    cv::Vec<double, D> predict(cv::Vec<double, D> x) {return x;};
-};
-
 // Represents the class of motion models where the state dynamics are linear, so
 // that the state at time k+1 can be obtained from multiplying a matrix by the
 // previous state
@@ -480,14 +473,6 @@ void GaussianMixture<D> :: truncate (unsigned int threshold) {
         std::greater<WeightedGaussian<D> >());
     mComponents.erase(mComponents.begin() + threshold + 1, mComponents.end());
   }
-}
-
-template <int D>
-ConstantPositionMotionModel<D> :: ConstantPositionMotionModel(
-    cv::Matx<double, D, D> procNoise) {
-  this->mIsLinear = true;
-  this->mJacobian = cv::Matx<double, D, D>::eye();
-  this->mProcNoise = procNoise;
 }
 
 template <int D>
