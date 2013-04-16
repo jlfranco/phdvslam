@@ -2,6 +2,7 @@
 #include "opencv2/highgui/highgui.hpp"
 #include <iostream>
 #include <fstream>
+#include <sstream>
 
 void testCholesky () {
   cv::Matx<double, 5, 5> A1 = cv::Matx<double, 5, 5>::eye();
@@ -180,7 +181,128 @@ void testCtPHD(){
   }
 }
 
+// TODO TEST
+std::vector<std::vector<cv::Vec<double, 2> > >
+readMeasurements(std::string filename) {
+  std::ifstream inputFile;
+  std::string line;
+  std::string measurementString;
+  std::stringstream splitLine;
+  std::stringstream splitMeasurement;
+  std::string strX, strY;
+  double measurementX, measurementY;
+  cv::Vec<double, 2> measurement;
+  std::vector<cv::Vec<double, 2> > frame;
+  std::vector<std::vector<cv::Vec<double, 2> > > results;
+  inputFile.open(filename.c_str());
+  while (std::getline(inputFile, line)) {
+    frame.clear();
+    splitLine.clear();
+    splitLine.str(line);
+    //splitLine.seekg(0);
+    while(std::getline(splitLine, measurementString, '|')) {
+      splitMeasurement.str(measurementString);
+      //splitMeasurement.seekg(0);
+      splitMeasurement.clear();
+      std::getline(splitMeasurement, strX, ',');
+      std::getline(splitMeasurement, strY, ',');
+      measurementX = atof(strX.c_str());
+      measurementY = atof(strY.c_str());
+      frame.push_back(cv::Vec<double, 2>(measurementX, measurementY));
+    }
+    results.push_back(frame);
+  }
+  return results;
+}
+
+void printMeasurements(std::vector<std::vector<cv::Vec<double, 2> > > meas) {
+  std::vector<std::vector<cv::Vec<double, 2> > >::iterator it;
+  std::vector<cv::Vec<double, 2> >::iterator jt;
+  int frameNo = 0;
+  for (it = meas.begin(); it != meas.end(); ++it) {
+    std::cout << "[" << frameNo++ << "] ";
+    for (jt = it->begin(); jt != it->end(); ++jt) {
+      std::cout << "(" << (*jt)(0) << "," << (*jt)(1) << ") ";
+    }
+    std::cout << std::endl;
+  }
+}
+
+void writeGM(std::vector<GaussianMixture<4> > data, std::string filename) {
+  // Write the weight, mean, and lower diagonal of the covariance matrix
+  // of a vector of GaussianMixtures
+  std::vector<GaussianMixture<4> >::iterator it;
+  std::vector<WeightedGaussian<4> >::iterator jt;
+  std::ofstream file(filename.c_str());
+  for(it = data.begin(); it != data.end(); ++it) {
+    if(it != data.begin()) {
+      file << "===\n";
+    }
+    for(jt = it->mComponents.begin(); jt != it->mComponents.end(); ++jt) {
+      file << jt->getWeight() << "," << jt->getMean()(0) << "," <<
+        jt->getMean()(1) << "," << jt->getMean()(2) << "," << jt->getMean()(3)
+        << "," << 
+        jt->getCov()(0, 0) << "," << jt->getCov()(1, 0) << "," <<
+        jt->getCov()(2, 0) << "," << jt->getCov()(3, 0) << "," << 
+        jt->getCov()(1, 1) << "," << jt->getCov()(2, 1) << "," <<
+        jt->getCov()(3, 1) << "," << jt->getCov()(2, 2) << "," <<
+        jt->getCov()(3, 2) << "," << jt->getCov()(3, 3) << "\n";
+    }
+  }
+  file.close();
+}
+
+void testCvPHD(){
+  cv::Matx<double, 4, 4> dynMatrix;
+  cv::Matx<double, 4, 4> procNoise;
+  cv::Matx<double, 2, 4> measMatrix;
+  cv::Matx<double, 2, 2> measNoise;
+  cv::Matx<double, 4, 4> newElemCov;
+  double dt = 1;
+  dynMatrix << 1, 0, dt,  0,
+               0, 1,  0, dt,
+               0, 0,  1,  0,
+               0, 0,  0,  1;
+  procNoise << 0.25,   0,    0,    0,
+                 0, 0.25,    0,    0,
+                 0,   0, 0.02,    0,
+                 0,   0,    0, 0.02;
+  measMatrix << 1, 0, 0, 0,
+                0, 1, 0, 0;
+  measNoise << 0.25, 0, 0, 0.25;
+  newElemCov << 0.25, 0, 0, 0,
+                0, 0.25, 0, 0,
+                0, 0, 0.1, 0,
+                0, 0, 0, 0.1;
+  LinearMotionModel<4> CVMotionModel(dynMatrix, procNoise);
+  LinearMeasurementModel<4, 2> PMeasurementModel(measMatrix, measNoise,
+      newElemCov);
+  GMPHDFilterParams filterParams(0.99, 0.9, 0.001, 1, 1e-3, 120);
+  GMPHDFilter<4, 2> filter(&CVMotionModel, &PMeasurementModel, filterParams);
+  std::vector<std::vector<cv::Vec<double, 2> > > measurements = 
+    readMeasurements("meas.txt");
+  std::vector<std::vector<cv::Vec<double, 2> > >::iterator it;
+  std::vector<cv::Vec<double, 4> > stateEstimate;
+  std::vector<GaussianMixture<4> > intensities;
+  double estimatedCardinality;
+  for (it = measurements.begin(); it != measurements.end(); ++it) {
+    filter.predict();
+    filter.update(*it);
+    std::cout << "(" << it->size() << ") " << filter.getPHD().size() << std::endl;
+    intensities.push_back(filter.getPHD());
+    stateEstimate = filter.getStateEstimate();
+    estimatedCardinality = 0.;
+    for (int i = 0; i < filter.getPHD().size(); ++i) {
+      estimatedCardinality += filter.getPHD().at(i).getWeight();
+    }
+  }
+  writeGM(intensities, "gm.txt");
+}
+
 int main() {
-  testCtPHD();
+//  std::vector<std::vector<cv::Vec<double, 2> > > measurements = 
+//    readMeasurements("./meas.txt");
+//  printMeasurements(measurements);
+  testCvPHD();
   return 0;
 }

@@ -127,6 +127,21 @@ class LinearMotionModel: public MotionModel<D> {
     cv::Vec<double, D> predict(cv::Vec<double, D> x);
 };
 
+template <int D, int M>
+class LinearMeasurementModel: public MeasurementModel<D, M> {
+  protected:
+    cv::Matx<double, D, M> mMeasMatrixPseudoInverse;
+    cv::Matx<double, D, D> mNewComponentCov;
+  public:
+    LinearMeasurementModel(cv::Matx<double, M, D> measurementMatrix,
+        cv::Matx<double, M, M> measNoise,
+        cv::Matx<double, D, D> newComponentCov);
+    LinearMeasurementModel(cv::Matx<double, M, M> measNoise,
+        cv::Matx<double, D, D> newComponentCov);
+    cv::Vec<double, M> predict(cv::Vec<double, D> x);
+    WeightedGaussian<D> invert(cv::Vec<double, M> z);
+};
+
 // Here we omit the second template parameter since we assume D==M
 template <int D>
 class IdentityMeasurementModel: public MeasurementModel<D, D> {
@@ -203,8 +218,18 @@ class GMPHDFilter {
     void predict();
     void update(std::vector<cv::Vec<double, M> >); // Includes birth
     std::vector<cv::Vec<double, D> > getStateEstimate();
+    double multiObjectLikelihood();
     // Parameters
     GMPHDFilterParams mParams;
+};
+
+template <int D, int M>
+class GMPHDFilterParticle {
+  protected:
+    GMPHDFilter<D, M> mPHDFilter;
+    double mWeight;
+    // XXX XXX Insert rest of particle here
+    // TODO
 };
 
 /* Functions */
@@ -311,7 +336,9 @@ cv::Matx<double, 3, 3> RPYRotation(double roll, double pitch, double yaw) {
   return rotation;
 }
 
-/* Implementation */
+/* * * * * * * * * *
+ * Implementation  *
+ * * * * * * * * * */
 
 template <int D>
 WeightedGaussian<D> :: WeightedGaussian () {
@@ -497,6 +524,39 @@ cv::Vec<double, D> LinearMotionModel<D> :: predict (cv::Vec<double, D> x) {
   return (this->mJacobian) * x;
 }
 
+template <int D, int M>
+LinearMeasurementModel<D, M> :: LinearMeasurementModel(
+    cv::Matx<double, M, D> measurementMatrix, cv::Matx<double, M, M> measNoise,
+    cv::Matx<double, D, D> newComponentCov) {
+  this->mIsLinear = true;
+  this->mJacobian = measurementMatrix;
+  cv::Mat auxMat = (cv::Mat(this->mJacobian)).inv(cv::DECOMP_SVD);
+  mMeasMatrixPseudoInverse = cv::Matx<double, D, M>(auxMat);
+  this->mMeasNoise = measNoise;
+  mNewComponentCov = newComponentCov;
+}
+
+template <int D, int M>
+LinearMeasurementModel<D, M> :: LinearMeasurementModel(
+    cv::Matx<double, M, M> measNoise, cv::Matx<double, D, D> newComponentCov) {
+  this->mIsLinear = true;
+  this->mJacobian = cv::Matx<double, M, D>::eye();
+  mMeasMatrixPseudoInverse = (this->mJacobian).inv(cv::DECOMP_SVD);
+  this->mMeasNoise = measNoise;
+  mNewComponentCov = newComponentCov;
+}
+
+template <int D, int M>
+cv::Vec<double, M> LinearMeasurementModel<D, M> :: predict(cv::Vec<double, D> x) {
+  return (this->mJacobian) * x;
+}
+
+template <int D, int M>
+WeightedGaussian<D> LinearMeasurementModel<D, M> :: invert(cv::Vec<double, M> z) {
+  cv::Vec<double, D> inverseMean = mMeasMatrixPseudoInverse * z;
+  return WeightedGaussian<D>(1.0, inverseMean, mNewComponentCov);
+}
+
 template <int D>
 IdentityMeasurementModel<D> :: IdentityMeasurementModel(
     cv::Matx<double, D, D> measNoise) {
@@ -571,10 +631,10 @@ void GMPHDFilter<D, M> :: updateLinear(
   std::vector<cv::Matx<double, D, M> > K;
   std::vector<cv::Matx<double, D, D> > P;
   cv::Matx<double, M, M> R = mMeasurementModel->getMeasNoise();
-  cv::Matx<double, D, M> H = mMeasurementModel->getJacobian();
+  cv::Matx<double, M, D> H = mMeasurementModel->getJacobian();
   cv::Matx<double, D, D> ID = cv::Matx<double, D, D>::eye();
   typename std::vector<WeightedGaussian<D> >::iterator it;
-  typename std::vector<cv::Vec<double, D> >::iterator jt;
+  typename std::vector<cv::Vec<double, M> >::iterator jt;
   // Update previous weights and compute elements for update
   for (it = mPHD.mComponents.begin(); it != mPHD.mComponents.end(); ++it) {
     eta.push_back(H * it->getMean());
