@@ -228,9 +228,9 @@ void printMeasurements(std::vector<std::vector<cv::Vec<double, 2> > > meas) {
   }
 }
 
-void writeGM(std::vector<GaussianMixture<4> > data, std::string filename) {
+void writeGM4(std::vector<GaussianMixture<4> > data, std::string filename) {
   // Write the weight, mean, and lower diagonal of the covariance matrix
-  // of a vector of GaussianMixtures
+  // of a vector of GaussianMixtures of dimension 4
   std::vector<GaussianMixture<4> >::iterator it;
   std::vector<WeightedGaussian<4> >::iterator jt;
   std::ofstream file(filename.c_str());
@@ -247,6 +247,25 @@ void writeGM(std::vector<GaussianMixture<4> > data, std::string filename) {
         jt->getCov()(1, 1) << "," << jt->getCov()(2, 1) << "," <<
         jt->getCov()(3, 1) << "," << jt->getCov()(2, 2) << "," <<
         jt->getCov()(3, 2) << "," << jt->getCov()(3, 3) << "\n";
+    }
+  }
+  file.close();
+}
+
+void writeGM2(std::vector<GaussianMixture<2> > data, std::string filename) {
+  // Write the weight, mean, and lower diagonal of the covariance matrix
+  // of a vector of GaussianMixtures of dimension 2
+  std::vector<GaussianMixture<2> >::iterator it;
+  std::vector<WeightedGaussian<2> >::iterator jt;
+  std::ofstream file(filename.c_str());
+  for(it = data.begin(); it != data.end(); ++it) {
+    if(it != data.begin()) {
+      file << "===\n";
+    }
+    for(jt = it->mComponents.begin(); jt != it->mComponents.end(); ++jt) {
+      file << jt->getWeight() << "," << jt->getMean()(0) << "," <<
+        jt->getMean()(1) << "," << jt->getCov()(0, 0) << "," <<
+        jt->getCov()(1, 0) << "," << jt->getCov()(1, 1) <<  "\n";
     }
   }
   file.close();
@@ -313,13 +332,49 @@ void testCvPHD(){
       estimatedCardinality += filter.getPHD().at(i).getWeight();
     }
   }
-  writeGM(intensities, "gm.txt");
+  writeGM4(intensities, "gm.txt");
+}
+
+void testCpPHD(){
+  cv::Matx<double, 2, 2> dynMatrix;
+  cv::Matx<double, 2, 2> procNoise;
+  cv::Matx<double, 2, 2> measMatrix;
+  cv::Matx<double, 2, 2> measNoise;
+  cv::Matx<double, 2, 2> newElemCov;
+  dynMatrix = cv::Matx<double, 2, 2>::eye();
+  procNoise << 0.1, 0, 0, 0.1;
+  measMatrix = cv::Matx<double, 2, 2>::eye();
+  measNoise << 0.25, 0, 0, 0.25;
+  newElemCov << 0.25, 0, 0, 0.25;
+  LinearMotionModel<2> CVMotionModel(dynMatrix, procNoise);
+  LinearMeasurementModel<2, 2> PMeasurementModel(measMatrix, measNoise,
+      newElemCov);
+  GMPHDFilterParams filterParams = readFilterParams("params.txt");
+  GMPHDFilter<2, 2> filter(&CVMotionModel, &PMeasurementModel, filterParams);
+  std::vector<std::vector<cv::Vec<double, 2> > > measurements = 
+    readMeasurements("../../Matlab/measurements.txt");
+  std::vector<std::vector<cv::Vec<double, 2> > >::iterator it;
+  std::vector<GaussianMixture<2> > intensities;
+  double estimatedCardinality;
+  unsigned int iteration = 0;
+  for (it = measurements.begin(); it != measurements.end(); ++it) {
+    filter.predict();
+    filter.update(*it);
+    estimatedCardinality = 0.;
+    for (int i = 0; i < filter.getPHD().size(); ++i) {
+      estimatedCardinality += filter.getPHD().at(i).getWeight();
+    }
+    std::cout << iteration++ << ": (" << it->size() << ") "
+      << filter.getPHD().size() << " ~ " << estimatedCardinality << std::endl;
+    intensities.push_back(filter.getPHD());
+  }
+  writeGM2(intensities, "gm.txt");
 }
 
 int main() {
 //  std::vector<std::vector<cv::Vec<double, 2> > > measurements = 
 //    readMeasurements("./meas.txt");
 //  printMeasurements(measurements);
-  testCvPHD();
+  testCpPHD();
   return 0;
 }
