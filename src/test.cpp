@@ -252,6 +252,23 @@ void writeGM(std::vector<GaussianMixture<4> > data, std::string filename) {
   file.close();
 }
 
+GMPHDFilterParams readFilterParams(std::string filename) {
+  std::ifstream inputFile(filename.c_str());
+  double probSurvival, probDetection, clutterDensity, mergeThreshold,
+         trimThreshold;
+  int truncThreshold;
+  std::string line;
+  inputFile >> probSurvival;
+  inputFile >> probDetection;
+  inputFile >> clutterDensity;
+  inputFile >> mergeThreshold;
+  inputFile >> trimThreshold;
+  inputFile >> truncThreshold;
+  inputFile.close();
+  return GMPHDFilterParams(probSurvival, probDetection, clutterDensity,
+      mergeThreshold, trimThreshold, truncThreshold);
+}
+
 void testCvPHD(){
   cv::Matx<double, 4, 4> dynMatrix;
   cv::Matx<double, 4, 4> procNoise;
@@ -277,10 +294,10 @@ void testCvPHD(){
   LinearMotionModel<4> CVMotionModel(dynMatrix, procNoise);
   LinearMeasurementModel<4, 2> PMeasurementModel(measMatrix, measNoise,
       newElemCov);
-  GMPHDFilterParams filterParams(0.99, 0.9, 0.001, 1, 1e-3, 120);
+  GMPHDFilterParams filterParams = readFilterParams("params.txt");
   GMPHDFilter<4, 2> filter(&CVMotionModel, &PMeasurementModel, filterParams);
   std::vector<std::vector<cv::Vec<double, 2> > > measurements = 
-    readMeasurements("meas.txt");
+    readMeasurements("../../Matlab/measurements.txt");
   std::vector<std::vector<cv::Vec<double, 2> > >::iterator it;
   std::vector<cv::Vec<double, 4> > stateEstimate;
   std::vector<GaussianMixture<4> > intensities;
