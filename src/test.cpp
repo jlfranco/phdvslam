@@ -342,10 +342,10 @@ void testCpPHD(){
   cv::Matx<double, 2, 2> measNoise;
   cv::Matx<double, 2, 2> newElemCov;
   dynMatrix = cv::Matx<double, 2, 2>::eye();
-  procNoise << 0.1, 0, 0, 0.1;
+  procNoise << 1, 0, 0, 1;
   measMatrix = cv::Matx<double, 2, 2>::eye();
-  measNoise << 0.25, 0, 0, 0.25;
-  newElemCov << 0.25, 0, 0, 0.25;
+  measNoise << 1, 0, 0, 1;
+  newElemCov << 1, 0, 0, 1;
   LinearMotionModel<2> CVMotionModel(dynMatrix, procNoise);
   LinearMeasurementModel<2, 2> PMeasurementModel(measMatrix, measNoise,
       newElemCov);
@@ -365,7 +365,8 @@ void testCpPHD(){
       estimatedCardinality += filter.getPHD().at(i).getWeight();
     }
     std::cout << iteration++ << ": (" << it->size() << ") "
-      << filter.getPHD().size() << " ~ " << estimatedCardinality << std::endl;
+      << filter.getPHD().size() << " ~ " << estimatedCardinality << "("
+      << filter.getMultiObjectLikelihood() << ")" << std::endl;
     intensities.push_back(filter.getPHD());
   }
   writeGM2(intensities, "gm.txt");

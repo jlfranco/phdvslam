@@ -196,6 +196,7 @@ class GMPHDFilter {
     MotionModel<D> * mMotionModel;
     MeasurementModel<D, M> * mMeasurementModel;
     GaussianMixture<D> mPHD;
+    double mMultiObjectLikelihood;
     void predictLinear();
     void predictNonLinear();
     void updateLinear(std::vector<cv::Vec<double, M> > measurements);
@@ -214,6 +215,7 @@ class GMPHDFilter {
     MotionModel<D> * getMotionModel() {return mMotionModel;};
     MeasurementModel<D, M> * getMeasurementModel() {
       return mMeasurementModel;};
+    double getMultiObjectLikelihood() const {return mMultiObjectLikelihood;};
     // Methods
     void predict();
     void update(std::vector<cv::Vec<double, M> >); // Includes birth
@@ -635,6 +637,12 @@ void GMPHDFilter<D, M> :: updateLinear(
   cv::Matx<double, D, D> ID = cv::Matx<double, D, D>::eye();
   typename std::vector<WeightedGaussian<D> >::iterator it;
   typename std::vector<cv::Vec<double, M> >::iterator jt;
+  // Compute exponential term of multi object likelihood
+  double sumOfWeights = 0;
+  for (it = prior.begin(); it != prior.end(); ++it) {
+    sumOfWeights += it->getWeight();
+  }
+  mMultiObjectLikelihood = exp((1 - mParams.mProbDetection) * sumOfWeights);
   // Update previous weights and compute elements for update
   for (it = mPHD.mComponents.begin(); it != mPHD.mComponents.end(); ++it) {
     eta.push_back(H * it->getMean());
@@ -669,6 +677,7 @@ void GMPHDFilter<D, M> :: updateLinear(
       mPHD.mComponents.push_back(WeightedGaussian<D>(nWeight, nMean, P[i]));
     }
     // Complete the denominator for the new Gaussian terms and apply it
+    mMultiObjectLikelihood *= denominator;
     denominator += mParams.mClutterDensity;
     for (int i = mPHD.mComponents.size() - prior.size() - 1;
         i < mPHD.mComponents.size(); ++i) {
@@ -692,6 +701,7 @@ GMPHDFilter<D, M> :: GMPHDFilter(MotionModel<D> * motionModel,
   mMotionModel = motionModel;
   mMeasurementModel = measurementModel;
   mParams = GMPHDFilterParams(ps, pd, k, mt, trit, trut);
+  mMultiObjectLikelihood = 0;
 }
 
 template <int D, int M>
@@ -701,6 +711,7 @@ GMPHDFilter<D, M> :: GMPHDFilter(MotionModel<D> * motionModel,
   mMotionModel = motionModel;
   mMeasurementModel = measurementModel;
   mParams = params;
+  mMultiObjectLikelihood = 0;
 }
 
 template <int D, int M>
