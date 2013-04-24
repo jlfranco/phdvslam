@@ -227,11 +227,16 @@ class GMPHDFilter {
 
 template <int D, int M>
 class GMPHDFilterParticle {
-  protected:
+  public:
+    // Members
     GMPHDFilter<D, M> mPHDFilter;
     double mWeight;
-    // XXX XXX Insert rest of particle here
-    // TODO
+    cv::Vec<double, M> mBias;
+    // Constructor
+    GMPHDFilterParticle(GMPHDFilter<D, M> filter, double weight,
+        cv::Vec<double, M> bias);
+    // Methods
+    void update(std::vector<cv::Vec<double, M> > measurements); 
 };
 
 /* Functions */
@@ -736,7 +741,7 @@ void GMPHDFilter<D, M> :: update(
   mPHD.truncate(mParams.mTruncThreshold);
 }
 
-template<int D, int M>
+template <int D, int M>
 std::vector<cv::Vec<double, D> > GMPHDFilter<D, M> :: getStateEstimate () {
   typename std::vector<WeightedGaussian<D> >::iterator it;
   std::vector<cv::Vec<double, D> > stateEstimate;
@@ -748,3 +753,21 @@ std::vector<cv::Vec<double, D> > GMPHDFilter<D, M> :: getStateEstimate () {
   return stateEstimate;
 }
 
+template <int D, int M>
+GMPHDFilterParticle<D, M> :: GMPHDFilterParticle(GMPHDFilter<D, M> filter,
+    double weight, cv::Vec<double, M> bias) {
+  mPHDFilter = filter;
+  mWeight = weight;
+  mBias = bias;
+}
+
+template <int D, int M>
+void GMPHDFilterParticle<D, M> :: update(
+    std::vector<cv::Vec<double, M> > measurements) {
+  std::vector<cv::Vec<double, M> > biasedMeasurements;
+  typename std::vector<cv::Vec<double, M> >::iterator it;
+  for (it = measurements.begin(); it != measurements.end(); ++it) {
+    biasedMeasurements.push_back(*it - mBias);
+  }
+  mPHDFilter.update(biasedMeasurements);
+}
