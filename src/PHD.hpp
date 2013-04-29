@@ -51,8 +51,8 @@ template <int D>
 class GaussianMixture {
   public:
     std::vector<WeightedGaussian<D> > mComponents;
-    GaussianMixture();
-    GaussianMixture(std::vector<WeightedGaussian<D> > components);
+    GaussianMixture<D>();
+    GaussianMixture<D>(std::vector<WeightedGaussian<D> > components);
     // Accessors
     WeightedGaussian<D> & at (int i) {return mComponents.at(i);};
     int size () { return mComponents.size(); }
@@ -74,6 +74,10 @@ class MotionModel {
     cv::Matx<double, D, D> mJacobian;
     cv::Matx<double, D, D> mProcNoise;
   public:
+    MotionModel<D> ();
+    MotionModel<D> (const MotionModel<D> & src);
+    virtual ~MotionModel<D>(){};
+    virtual MotionModel<D> * copy() = 0;
     virtual cv::Vec<double, D> predict(cv::Vec<double, D> x) = 0;
     // Accessors
     bool isLinear() const {return mIsLinear;};
@@ -94,6 +98,10 @@ class MeasurementModel {
     cv::Matx<double, M, D> mJacobian;
     cv::Matx<double, M, M> mMeasNoise;
   public:
+    MeasurementModel<D, M> ();
+    MeasurementModel<D, M> (const MeasurementModel<D, M> & src);
+    virtual ~MeasurementModel<D, M>() {};
+    virtual MeasurementModel<D, M> * copy() = 0;
     virtual cv::Vec<double, M> predict(cv::Vec<double, D> x) = 0;
     virtual WeightedGaussian<D> invert(cv::Vec<double, M> z) = 0;
     // Accessors
@@ -117,8 +125,11 @@ class LinearMotionModel: public MotionModel<D> {
   public:
     // This constructor uses the given dynamics matrix and process noise to
     // build the motion model
-    LinearMotionModel(cv::Matx<double, D, D> dynamicsMatrix,
+    LinearMotionModel<D>(cv::Matx<double, D, D> dynamicsMatrix,
         cv::Matx<double, D, D> procNoise);
+    ~LinearMotionModel<D>() {};
+    MotionModel<D> * copy() {return new LinearMotionModel<D>(*this);};
+    //LinearMotionModel<D>(const LinearMotionModel<D> & src);
     // This constructor assumes that the dynamics matrix is the identity
     // (Constant position)
     LinearMotionModel(cv::Matx<double, D, D> procNoise);
@@ -133,22 +144,25 @@ class LinearMeasurementModel: public MeasurementModel<D, M> {
     cv::Matx<double, D, M> mMeasMatrixPseudoInverse;
     cv::Matx<double, D, D> mNewComponentCov;
   public:
-    LinearMeasurementModel(cv::Matx<double, M, D> measurementMatrix,
+    LinearMeasurementModel<D, M> (cv::Matx<double, M, D> measurementMatrix,
         cv::Matx<double, M, M> measNoise,
         cv::Matx<double, D, D> newComponentCov);
-    LinearMeasurementModel(cv::Matx<double, M, M> measNoise,
+    LinearMeasurementModel<D, M> (cv::Matx<double, M, M> measNoise,
         cv::Matx<double, D, D> newComponentCov);
+    LinearMeasurementModel<D, M> (const LinearMeasurementModel<D, M> & src);
+    ~LinearMeasurementModel<D, M>(){};
+    MeasurementModel<D, M> * copy()
+      {return new LinearMeasurementModel(*this);};
+    // Accessors
+    cv::Matx<double, D, M> getMeasMatrixPseudoInverse() const {
+      return mMeasMatrixPseudoInverse;
+    };
+    cv::Matx<double, D, D> getNewComponentCov() const {
+      return mNewComponentCov;
+    };
+    // Methods
     cv::Vec<double, M> predict(cv::Vec<double, D> x);
     WeightedGaussian<D> invert(cv::Vec<double, M> z);
-};
-
-// Here we omit the second template parameter since we assume D==M
-template <int D>
-class IdentityMeasurementModel: public MeasurementModel<D, D> {
-  public:
-    IdentityMeasurementModel(cv::Matx<double, D, D> measNoise);
-    cv::Vec<double, D> predict(cv::Vec<double, D> x) {return x;};
-    WeightedGaussian<D> invert(cv::Vec<double, D> z);
 };
 
 /*
@@ -202,7 +216,7 @@ class GMPHDFilter {
     void updateLinear(std::vector<cv::Vec<double, M> > measurements);
     void updateNonLinear(std::vector<cv::Vec<double, M> > measurements);
   public:
-    // FIXME Default constructor? PHDFilter();
+    GMPHDFilter();
     GMPHDFilter(MotionModel<D> * motionModel,
         MeasurementModel<D, M> * measurementModel,
         double ps = 0.99, double pd = 0.9, double k = 0.005,
@@ -210,21 +224,24 @@ class GMPHDFilter {
     GMPHDFilter(MotionModel<D> * motionModel,
         MeasurementModel<D, M> * measurementModel,
         GMPHDFilterParams params);
+    GMPHDFilter (const GMPHDFilter<D, M> & src);
+    ~GMPHDFilter();
     // Accessors
-    GaussianMixture<D> getPHD() {return mPHD;};
-    MotionModel<D> * getMotionModel() {return mMotionModel;};
-    MeasurementModel<D, M> * getMeasurementModel() {
+    GaussianMixture<D> getPHD() const {return mPHD;};
+    MotionModel<D> * getMotionModel() const {return mMotionModel;};
+    MeasurementModel<D, M> * getMeasurementModel() const {
       return mMeasurementModel;};
     double getMultiObjectLikelihood() const {return mMultiObjectLikelihood;};
     // Methods
     void predict();
     void update(std::vector<cv::Vec<double, M> >); // Includes birth
     std::vector<cv::Vec<double, D> > getStateEstimate();
-    double multiObjectLikelihood();
     // Parameters
     GMPHDFilterParams mParams;
 };
 
+// Attention: Using a bias is _not_ general enough except for very basic
+// applications! However, for sensor drift estimation it is enough (for now)
 template <int D, int M>
 class GMPHDFilterParticle {
   public:
@@ -236,7 +253,34 @@ class GMPHDFilterParticle {
     GMPHDFilterParticle(GMPHDFilter<D, M> filter, double weight,
         cv::Vec<double, M> bias);
     // Methods
+    void predict();
     void update(std::vector<cv::Vec<double, M> > measurements); 
+    // Operators
+    bool operator<(GMPHDFilterParticle<D, M> cmp) const {
+      return mWeight < cmp.mWeight;};
+    bool operator<=(GMPHDFilterParticle<D, M> cmp) const {
+      return mWeight <= cmp.mWeight;};
+    bool operator>(GMPHDFilterParticle<D, M> cmp) const {
+      return mWeight > cmp.mWeight;};
+    bool operator>=(GMPHDFilterParticle<D, M> cmp) const {
+      return mWeight >= cmp.mWeight;};
+};
+
+// Building upon the previously constructed particle, this filter works only
+// where only sensor bias wants to be corrected. It assumes a constant position
+// motion model for the sensor. This should be made more general in the future
+// to accept arbitrary motion/measurement models for the sensor state
+template <int D, int M>
+class CPPHDParticleFilter {
+  public:
+    CPPHDParticleFilter(unsigned int numComponents,
+      cv::Matx<double, M, M> covariance, MotionModel<D> * motionModel,
+      MeasurementModel<D, M> * measurementModel, GMPHDFilterParams params);
+    std::vector<GMPHDFilterParticle<D, M> > mBelief;
+    cv::Matx<double, M, M> mNoiseCovariance;
+    void resample();
+    void predict();
+    void update(std::vector<cv::Vec<double, M> > measurements);
 };
 
 /* Functions */
@@ -511,6 +555,36 @@ void GaussianMixture<D> :: truncate (unsigned int threshold) {
   }
 }
 
+// Provides a way to construct a motion model without arguments
+template <int D>
+MotionModel<D> :: MotionModel() {
+  this->mIsLinear = true;
+  this->mJacobian = cv::Matx<double, D, D>::zeros();
+  this->mProcNoise = cv::Matx<double, D, D>::zeros();
+}
+
+template <int D>
+MotionModel<D> :: MotionModel(const MotionModel<D> & src) {
+  this->mIsLinear = src.isLinear();
+  this->mJacobian = src.getJacobian();
+  this->mProcNoise = src.getProcNoise();
+}
+
+template <int D, int M>
+MeasurementModel<D, M> :: MeasurementModel() {
+  this->mIsLinear = true;
+  this->mJacobian = cv::Matx<double, M, D>::zeros();
+  this->mMeasNoise = cv::Matx<double, M, M>::zeros();
+}
+
+template <int D, int M>
+MeasurementModel<D, M> :: MeasurementModel (
+    const MeasurementModel<D, M> & src) {
+  this->mIsLinear = src.isLinear();
+  this->mJacobian = src.getJacobian();
+  this->mMeasNoise = src.getMeasNoise();
+}
+
 template <int D>
 LinearMotionModel<D> :: LinearMotionModel (
     cv::Matx<double, D, D> dynamicsMatrix, cv::Matx<double, D, D> procNoise) {
@@ -525,6 +599,13 @@ LinearMotionModel<D> :: LinearMotionModel (cv::Matx<double, D, D> procNoise) {
   this->mJacobian = cv::Matx<double, D, D>::eye();
   this->mProcNoise = procNoise;
 }
+
+//template <int D>
+//LinearMotionModel<D> :: LinearMotionModel (const LinearMotionModel<D> & src) {
+//  this->mIsLinear = src.isLinear();
+//  this->mJacobian = src.getJacobian();
+//  this->mProcNoise = src.getProcNoise();
+//}
 
 template <int D>
 cv::Vec<double, D> LinearMotionModel<D> :: predict (cv::Vec<double, D> x) {
@@ -554,6 +635,16 @@ LinearMeasurementModel<D, M> :: LinearMeasurementModel(
 }
 
 template <int D, int M>
+LinearMeasurementModel<D, M> :: LinearMeasurementModel(
+    const LinearMeasurementModel<D, M> & src) : MeasurementModel<D, M> (src) {
+//  this->mIsLinear = src.isLinear();
+//  this->mJacobian = src.getJacobian();
+//  this->mMeasNoise = src.getMeasNoise();
+  mMeasMatrixPseudoInverse = src.getMeasMatrixPseudoInverse();
+  mNewComponentCov = src.getNewComponentCov();
+}
+
+template <int D, int M>
 cv::Vec<double, M> LinearMeasurementModel<D, M> :: predict(cv::Vec<double, D> x) {
   return (this->mJacobian) * x;
 }
@@ -562,20 +653,6 @@ template <int D, int M>
 WeightedGaussian<D> LinearMeasurementModel<D, M> :: invert(cv::Vec<double, M> z) {
   cv::Vec<double, D> inverseMean = mMeasMatrixPseudoInverse * z;
   return WeightedGaussian<D>(1.0, inverseMean, mNewComponentCov);
-}
-
-template <int D>
-IdentityMeasurementModel<D> :: IdentityMeasurementModel(
-    cv::Matx<double, D, D> measNoise) {
-  this->mIsLinear = true;
-  this->mJacobian = cv::Matx<double, D, D>::eye();
-  this->mMeasNoise = measNoise;
-}
-
-template <int D>
-WeightedGaussian<D> IdentityMeasurementModel<D> :: invert(
-    cv::Vec<double, D> z) {
-  return WeightedGaussian<D>(1, z, this->mMeasNoise);
 }
 
 /*
@@ -700,6 +777,13 @@ void GMPHDFilter<D, M> :: updateNonLinear(
 }
 
 template <int D, int M>
+GMPHDFilter<D, M> :: GMPHDFilter() {
+  mMotionModel = NULL;
+  mMeasurementModel = NULL;
+  mMultiObjectLikelihood = 0;
+}
+
+template <int D, int M>
 GMPHDFilter<D, M> :: GMPHDFilter(MotionModel<D> * motionModel,
     MeasurementModel<D, M> * measurementModel, double ps, double pd,
     double k, double mt, double trit, int trut) {
@@ -720,25 +804,50 @@ GMPHDFilter<D, M> :: GMPHDFilter(MotionModel<D> * motionModel,
 }
 
 template <int D, int M>
+GMPHDFilter<D, M> :: GMPHDFilter(const GMPHDFilter<D, M> & src) {
+  mPHD = src.getPHD();
+  mMotionModel = src.getMotionModel()->copy();
+  mMeasurementModel = src.getMeasurementModel()->copy();
+  mParams = src.mParams;
+  mMultiObjectLikelihood = src.getMultiObjectLikelihood();
+}
+
+template <int D, int M>
+GMPHDFilter<D, M> :: ~GMPHDFilter() {
+  delete mMotionModel;
+  delete mMeasurementModel;
+}
+
+template <int D, int M>
 void GMPHDFilter<D, M> :: predict() {
-  if (mMotionModel->isLinear()) {
-    predictLinear();
+  if (mMotionModel != NULL) {
+    if (mMotionModel->isLinear()) {
+      predictLinear();
+    } else {
+      predictNonLinear();
+    }
   } else {
-    predictNonLinear();
+    std::cout << "Uninitialized motion model\n";
+    exit(1);
   }
 }
 
 template <int D, int M>
 void GMPHDFilter<D, M> :: update(
     std::vector<cv::Vec<double, M> > measurements) {
-  if (mMeasurementModel->isLinear()) {
-    updateLinear(measurements);
+  if (mMeasurementModel != NULL) {
+    if (mMeasurementModel->isLinear()) {
+      updateLinear(measurements);
+    } else {
+      updateNonLinear(measurements);
+    }
+    mPHD.merge(mParams.mMergeThreshold);
+    mPHD.trim(mParams.mTrimThreshold);
+    mPHD.truncate(mParams.mTruncThreshold);
   } else {
-    updateNonLinear(measurements);
+    std::cout << "Uninitialized measurement model\n";
+    exit(1);
   }
-  mPHD.merge(mParams.mMergeThreshold);
-  mPHD.trim(mParams.mTrimThreshold);
-  mPHD.truncate(mParams.mTruncThreshold);
 }
 
 template <int D, int M>
@@ -762,6 +871,11 @@ GMPHDFilterParticle<D, M> :: GMPHDFilterParticle(GMPHDFilter<D, M> filter,
 }
 
 template <int D, int M>
+void GMPHDFilterParticle<D, M> :: predict() {
+  mPHDFilter.predict();
+}
+
+template <int D, int M>
 void GMPHDFilterParticle<D, M> :: update(
     std::vector<cv::Vec<double, M> > measurements) {
   std::vector<cv::Vec<double, M> > biasedMeasurements;
@@ -770,4 +884,98 @@ void GMPHDFilterParticle<D, M> :: update(
     biasedMeasurements.push_back(*it - mBias);
   }
   mPHDFilter.update(biasedMeasurements);
+}
+
+template <int D, int M>
+CPPHDParticleFilter<D, M> :: CPPHDParticleFilter(unsigned int numComponents,
+    cv::Matx<double, M, M> noiseCovariance, MotionModel<D> * motionModel,
+    MeasurementModel<D, M> * measurementModel, GMPHDFilterParams params){
+  mNoiseCovariance = noiseCovariance;
+  cv::Vec<double, M> zeros;
+  for (int i = 0; i < M; ++i) {
+    zeros(i) = 0;
+  }
+  MotionModel<D> * motionModelCopy = NULL;
+  MeasurementModel<D, M> * measurementModelCopy = NULL;
+  for (int i = 0; i < numComponents; ++i) {
+    motionModelCopy = motionModel->copy();
+    measurementModelCopy = measurementModel->copy();
+    mBelief.push_back(
+      GMPHDFilterParticle<D, M>(
+        GMPHDFilter<D, M> (motionModelCopy, measurementModelCopy, params),
+        1/numComponents, zeros) );
+  }
+}
+
+template <int D, int M>
+void CPPHDParticleFilter<D, M> :: predict() {
+  cv::Vec<double, M> zeros;
+  for (int i = 0; i < M; ++i) {
+    zeros(i) = 0;
+  }
+  std::vector<cv::Vec<double, M> > noise = sampleMVGaussian(zeros,
+      mNoiseCovariance, mBelief.size());
+  for (int i = 0; i < mBelief.size(); ++i) {
+    mBelief[i].mBias += noise[i];
+    mBelief[i].predict();
+  }
+}
+
+// Roulette resampling for the Particle PHD Filter
+template <int D, int M>
+void CPPHDParticleFilter<D, M> :: resample() {
+  typename std::vector<GMPHDFilterParticle<D, M> >::iterator it;
+  double squaredSum = 0;
+  for (it = mBelief.begin(); it != mBelief.end(); ++it) {
+    squaredSum += pow(it->mWeight, 2);
+  }
+  // Compare efficient number to half the number of particles
+  // to decide if resampling is necessary
+  if (1/squaredSum < 0.5*mBelief.size()) {
+    double sumOfWeights = 0;
+    std::vector<GMPHDFilterParticle<D, M> > resampledBelief;
+    for (it = mBelief.begin(); it != mBelief.end(); ++it) {
+      sumOfWeights += it->mWeight;
+    }
+    for (it = mBelief.begin(); it != mBelief.end(); ++it) {
+      it->mWeight = (it->mWeight)/sumOfWeights;
+    }
+    std::vector<GMPHDFilterParticle<D, M> > newBelief;
+    double location = cv::randu<double>();
+    double cumsum = 0;
+    double increment = 1/mBelief.size();
+    int j = 0;
+    for (int i = 0; i < mBelief.size(); ++i) {
+      while (cumsum < location) {
+        cumsum += mBelief[j].mWeight;
+        ++j;
+        if (j >= mBelief.size()){
+          j = 0;
+          cumsum = 0;
+          location -= 1;
+        }
+      }
+      newBelief.push_back(mBelief[j]);
+      location += increment;
+    }
+  }
+}
+
+template <int D, int M>
+void CPPHDParticleFilter<D, M> :: update(
+    std::vector<cv::Vec<double, M> > measurements){
+  typename std::vector<GMPHDFilterParticle<D, M> >::iterator it;
+  double sumOfWeights = 0;
+  // This loop is split in two so that parallelization can be added easily to
+  // the first part
+  for (it = mBelief.begin(); it != mBelief.end(); ++it) {
+    it->update(measurements);
+  }
+  for (it = mBelief.begin(); it != mBelief.end(); ++it) {
+    sumOfWeights += it->mPHDFilter.getMultiObjectLikelihood();
+  }
+  for (it = mBelief.begin(); it != mBelief.end(); ++it) {
+    it->mWeight = (it->mPHDFilter.getMultiObjectLikelihood()) *
+      (it->mWeight) / sumOfWeights;
+  }
 }

@@ -3,6 +3,7 @@
 #include <iostream>
 #include <fstream>
 #include <sstream>
+#include <algorithm>
 
 void testCholesky () {
   cv::Matx<double, 5, 5> A1 = cv::Matx<double, 5, 5>::eye();
@@ -143,44 +144,6 @@ void testSim(){
   }
 }
 
-void testCtPHD(){
-  cv::Matx<double, 2, 2> procNoise = 0.01*cv::Matx<double, 2, 2>::eye();
-  cv::Matx<double, 2, 2> measNoise = 0.01*cv::Matx<double, 2, 2>::eye();
-  LinearMotionModel<2> cpmm(procNoise);
-  //ConstantPositionMotionModel<2> cpmm(procNoise);
-  IdentityMeasurementModel<2> imm(measNoise);
-  GMPHDFilter<2, 2> filter(&cpmm, &imm, 0.99, 0.9, 0.001, 0.9, 1e-6, 120);
-  std::vector<cv::Vec<double, 2> > GT;
-  cv::Vec<double, 2> C1;
-  C1 << 2, 8;
-  GT.push_back(C1);
-  cv::Vec<double, 2> C2;
-  C2 << 8, 2;
-  GT.push_back(C2);
-  cv::Vec<double, 2> C3;
-  C3 << 5, 5;
-  GT.push_back(C3);
-  std::vector<cv::Vec<double, 2> > measurements = simMeasurements(GT);
-  std::vector<cv::Vec<double, 2> > stateEstimate;
-  double estimNo;
-  for(int t = 0; t < 50; ++t) {
-    measurements = simMeasurements(GT);
-    filter.predict();
-    filter.update(measurements);
-    stateEstimate = filter.getStateEstimate();
-    estimNo = 0.;
-    for(int i = 0; i < filter.getPHD().size(); ++i) {
-      estimNo += filter.getPHD().at(i).getWeight();
-    }
-    std::cout << "[" << t << "]: [" << filter.getPHD().size() << " - "
-      << estimNo << "] ";
-    for (int i = 0; i < stateEstimate.size(); ++i) {
-      std::cout << stateEstimate[i] << " ";
-    }
-    std::cout << std::endl;
-  }
-}
-
 // TODO TEST
 std::vector<std::vector<cv::Vec<double, 2> > >
 readMeasurements(std::string filename) {
@@ -310,11 +273,12 @@ void testCvPHD(){
                 0, 0.25, 0, 0,
                 0, 0, 0.1, 0,
                 0, 0, 0, 0.1;
-  LinearMotionModel<4> CVMotionModel(dynMatrix, procNoise);
-  LinearMeasurementModel<4, 2> PMeasurementModel(measMatrix, measNoise,
-      newElemCov);
+  LinearMotionModel<4> * CVMotionModel = 
+    new LinearMotionModel<4> (dynMatrix, procNoise);
+  LinearMeasurementModel<4, 2> * PMeasurementModel = 
+    new LinearMeasurementModel<4, 2>(measMatrix, measNoise, newElemCov);
   GMPHDFilterParams filterParams = readFilterParams("params.txt");
-  GMPHDFilter<4, 2> filter(&CVMotionModel, &PMeasurementModel, filterParams);
+  GMPHDFilter<4, 2> filter(CVMotionModel, PMeasurementModel, filterParams);
   std::vector<std::vector<cv::Vec<double, 2> > > measurements = 
     readMeasurements("../../Matlab/measurements.txt");
   std::vector<std::vector<cv::Vec<double, 2> > >::iterator it;
@@ -346,11 +310,12 @@ void testCpPHD(){
   measMatrix = cv::Matx<double, 2, 2>::eye();
   measNoise << 1, 0, 0, 1;
   newElemCov << 1, 0, 0, 1;
-  LinearMotionModel<2> CVMotionModel(dynMatrix, procNoise);
-  LinearMeasurementModel<2, 2> PMeasurementModel(measMatrix, measNoise,
-      newElemCov);
+  LinearMotionModel<2> * CVMotionModel = 
+    new LinearMotionModel<2>(dynMatrix, procNoise);
+  LinearMeasurementModel<2, 2> * PMeasurementModel = 
+    new LinearMeasurementModel<2, 2> (measMatrix, measNoise, newElemCov);
   GMPHDFilterParams filterParams = readFilterParams("params.txt");
-  GMPHDFilter<2, 2> filter(&CVMotionModel, &PMeasurementModel, filterParams);
+  GMPHDFilter<2, 2> filter(CVMotionModel, PMeasurementModel, filterParams);
   std::vector<std::vector<cv::Vec<double, 2> > > measurements = 
     readMeasurements("../../Matlab/measurements.txt");
   std::vector<std::vector<cv::Vec<double, 2> > >::iterator it;
@@ -372,10 +337,63 @@ void testCpPHD(){
   writeGM2(intensities, "gm.txt");
 }
 
+void testParticleFilter() {
+  cv::Matx<double, 2, 2> dynMatrix;
+  cv::Matx<double, 2, 2> procNoise;
+  cv::Matx<double, 2, 2> measMatrix;
+  cv::Matx<double, 2, 2> measNoise;
+  cv::Matx<double, 2, 2> newElemCov;
+  cv::Matx<double, 2, 2> particleCov;
+  dynMatrix = cv::Matx<double, 2, 2>::eye();
+  procNoise << 1, 0, 0, 1;
+  measMatrix = cv::Matx<double, 2, 2>::eye();
+  measNoise << 1, 0, 0, 1;
+  newElemCov << 1, 0, 0, 1;
+  particleCov << 0.5, 0, 0, 0.5;
+  LinearMotionModel<2> CVMotionModel(dynMatrix, procNoise);
+  LinearMeasurementModel<2, 2> PMeasurementModel(measMatrix, measNoise,
+      newElemCov);
+  GMPHDFilterParams filterParams = readFilterParams("params.txt");
+  CPPHDParticleFilter<2, 2> filter(20, particleCov, &CVMotionModel,
+     &PMeasurementModel, filterParams);
+  std::vector<std::vector<cv::Vec<double, 2> > > measurements = 
+    readMeasurements("../../Matlab/measurements.txt");
+  std::vector<std::vector<cv::Vec<double, 2> > >::iterator it;
+  std::vector<GaussianMixture<2> > intensities;
+  GMPHDFilter<2, 2> bestFilter;
+  std::vector<cv::Vec<double, 2> > estimatedBias;
+  double estimatedCardinality;
+  unsigned int iteration = 0;
+  for (it = measurements.begin(); it != measurements.end(); ++it) {
+    filter.predict();
+    filter.update(*it);
+    filter.resample();
+    bestFilter = std::max_element(
+        filter.mBelief.begin(), filter.mBelief.end() )->mPHDFilter;
+    estimatedBias.push_back(std::max_element(
+        filter.mBelief.begin(), filter.mBelief.end())->mBias) ;
+    estimatedCardinality = 0.;
+    for (int i = 0; i < bestFilter.getPHD().size(); ++i) {
+      estimatedCardinality += bestFilter.getPHD().at(i).getWeight();
+    }
+    std::cout << iteration++ << ": (" << it->size() << ") "
+      << bestFilter.getPHD().size() << " ~ " << estimatedCardinality << "("
+      << bestFilter.getMultiObjectLikelihood() << ")" << std::endl;
+    intensities.push_back(bestFilter.getPHD());
+  }
+  writeGM2(intensities, "gm.txt");
+  // Quick + dirty write biases
+  std::ofstream biasFile("biases.txt");
+  for (int i = 0; i < estimatedBias.size(); ++i) {
+    biasFile << estimatedBias[i][0] << "," << estimatedBias[i][1] << "\n";
+  }
+  biasFile.close();
+}
+
 int main() {
 //  std::vector<std::vector<cv::Vec<double, 2> > > measurements = 
 //    readMeasurements("./meas.txt");
 //  printMeasurements(measurements);
-  testCpPHD();
+  testParticleFilter();
   return 0;
 }
