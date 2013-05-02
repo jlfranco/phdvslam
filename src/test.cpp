@@ -345,16 +345,16 @@ void testParticleFilter() {
   cv::Matx<double, 2, 2> newElemCov;
   cv::Matx<double, 2, 2> particleCov;
   dynMatrix = cv::Matx<double, 2, 2>::eye();
-  procNoise << 1, 0, 0, 1;
+  procNoise << 0.1, 0, 0, 0.1;
   measMatrix = cv::Matx<double, 2, 2>::eye();
-  measNoise << 1, 0, 0, 1;
+  measNoise << 0.2, 0, 0, 0.2;
   newElemCov << 1, 0, 0, 1;
-  particleCov << 0.5, 0, 0, 0.5;
+  particleCov << 0.2, 0, 0, 0.2;
   LinearMotionModel<2> CVMotionModel(dynMatrix, procNoise);
   LinearMeasurementModel<2, 2> PMeasurementModel(measMatrix, measNoise,
       newElemCov);
   GMPHDFilterParams filterParams = readFilterParams("params.txt");
-  CPPHDParticleFilter<2, 2> filter(20, particleCov, &CVMotionModel,
+  CPPHDParticleFilter<2, 2> filter(50, particleCov, &CVMotionModel,
      &PMeasurementModel, filterParams);
   std::vector<std::vector<cv::Vec<double, 2> > > measurements = 
     readMeasurements("../../Matlab/measurements.txt");
@@ -365,7 +365,9 @@ void testParticleFilter() {
   double estimatedCardinality;
   unsigned int iteration = 0;
   for (it = measurements.begin(); it != measurements.end(); ++it) {
-    filter.predict();
+    if (iteration > 0) {
+      filter.predict();
+    }
     filter.update(*it);
     filter.resample();
     bestFilter = std::max_element(
