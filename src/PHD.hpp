@@ -774,8 +774,8 @@ void GMPHDFilter<D, M> :: updateLinear(
       mPHD.mComponents.push_back(WeightedGaussian<D>(nWeight, nMean, P[i]));
     }
     // Complete the denominator for the new Gaussian terms and apply it
-    mMultiObjectLikelihood *= denominator;
     denominator += mParams.mClutterDensity;
+    mMultiObjectLikelihood *= denominator;
     for (int i = mPHD.mComponents.size() - prior.size() - 1;
         i < mPHD.mComponents.size(); ++i) {
       mPHD.mComponents[i].setWeight(
