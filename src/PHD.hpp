@@ -287,9 +287,10 @@ class CPPHDParticleFilter {
     cv::Matx<double, M, M> mNoiseCovariance;
     void normalizeWeights();
     void basicResample();
+    std::vector<cv::Vec<double, M> > regularizedBiases();
+    void regularizedResample();
     void resample(std::vector<cv::Vec<double, M> > measurements);
     void predict();
-    std::vector<cv::Vec<double, M> > regularize();
     void update(std::vector<cv::Vec<double, M> > measurements);
 };
 
@@ -1124,7 +1125,7 @@ void CPPHDParticleFilter<D, M> :: predict() {
 }
 
 template <int D, int M>
-std::vector<cv::Vec<double, M> > CPPHDParticleFilter<D, M>::regularize() {
+std::vector<cv::Vec<double, M> > CPPHDParticleFilter<D, M>::regularizedBiases() {
   std::vector<cv::Vec<double, M> > biases;
   std::vector<cv::Vec<double, M> > whitenedBiases;
   std::vector<cv::Vec<double, M> > sampledBiases;
@@ -1164,6 +1165,17 @@ std::vector<cv::Vec<double, M> > CPPHDParticleFilter<D, M>::regularize() {
         decomposedCovariance * ( whitenedBiases[index] + noise[i] ) );
   }
   return sampledBiases;
+}
+
+template <int D, int M>
+void CPPHDParticleFilter<D, M> :: regularizedResample() {
+  std::vector<cv::Vec<double, M> > regularizedBiases = regularizedBiases();
+  typename std::vector<GMPHDFilterParticle<D, M> >::iterator it;
+  typename std::vector<cv::Vec<double, M> >::iterator jt;
+  for (it = mBelief.begin(), jt = regularizedBiases.begin();
+       it != mBelief.end(); ++it, ++jt) {
+    *it = *jt;
+  }
 }
 
 // This implements a simplified version (no adaptive tempering) version of
