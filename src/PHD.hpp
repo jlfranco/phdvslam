@@ -1157,7 +1157,7 @@ std::vector<cv::Vec<double, M> > CPPHDParticleFilter<D, M>::regularizedBiases() 
   // Taken from SMC Methods in Practice (Doucet 2001)
   double bandWidth = 0.5*pow(4/(M+2), 1/(M+4))*pow(mBelief.size(),-1/(M+4));
   std::vector<cv::Vec<double, M> > noise = sampleMVGaussian<M>(
-      zeros, cv::Matx<double, M, M>::zeros(), mBelief.size());
+      zeros, cv::Matx<double, M, M>::eye(), mBelief.size());
   int index;
   for (int i = 0; i < mBelief.size(); ++i) {
     index = sampleEmpirical(normalizedWeights);
@@ -1169,12 +1169,12 @@ std::vector<cv::Vec<double, M> > CPPHDParticleFilter<D, M>::regularizedBiases() 
 
 template <int D, int M>
 void CPPHDParticleFilter<D, M> :: regularizedResample() {
-  std::vector<cv::Vec<double, M> > regularizedBiases = regularizedBiases();
+  std::vector<cv::Vec<double, M> > regularizedBias = regularizedBiases();
   typename std::vector<GMPHDFilterParticle<D, M> >::iterator it;
   typename std::vector<cv::Vec<double, M> >::iterator jt;
-  for (it = mBelief.begin(), jt = regularizedBiases.begin();
+  for (it = mBelief.begin(), jt = regularizedBias.begin();
        it != mBelief.end(); ++it, ++jt) {
-    *it = *jt;
+    it->mBias = *jt;
   }
 }
 
@@ -1211,44 +1211,7 @@ void CPPHDParticleFilter<D, M> :: resample(
       it->mWeight = pow(oldLikelihoods.back(), likelihoodPower);
     }
     normalizeWeights();
-    basicResample();
-    weightedSample.clear();
-    for (it = mBelief.begin(); it != mBelief.end(); ++it) {
-      weightedSample.push_back((it->mWeight) * (it->mBias));
-      //weightedSample.push_back(it->mBias);
-    }
-    meanAndCovariance(weightedSample, sampleMean, sampleCov);
-    // If the covariance is positive definite, it is scaled and used to
-    // sample a new bias. Otherwise, the particle covariance is used to
-    // increase diversity.
-    if (cholesky<M>(covarianceProportion * sampleCov, unusedMatrix)) {
-      scaledCov = covarianceProportion * sampleCov;
-    } else {
-      // A small proportion of the noise covariance is used to avoid
-      // diverging greatly from the high-likelihood region
-      scaledCov = mNoiseCovariance;
-    }
-    sampledBiases = sampleMVGaussian<M>(sampleMean,
-      scaledCov, mBelief.size());
-    int ct = mBelief.size();
-    for (it = mBelief.begin(), jt = sampledBiases.begin(),
-        kt = oldLikelihoods.begin(); it != mBelief.end(); ++it, ++jt, ++kt) {
-      oldBias = it->mBias;
-      it->mBias = *jt;
-      newLikelihood = it->predictMeasurementLikelihood(measurements);
-      proposalOld = 1.; proposalNew = 1.;
-      //proposalOld = MVNormalPDF<M>(sampleMean,
-      //    scaledCov, oldBias);
-      //proposalNew = MVNormalPDF<M>(sampleMean,
-      //    scaledCov, *jt);
-      acceptProb = std::min(1.,
-          (proposalOld/proposalNew) * newLikelihood / (*kt));
-      if (cv::randu<double>() > acceptProb) {
-        it->mBias = oldBias;
-        ct--;
-      }
-    }
-    //std::cout << ct << " replacements\n";
+    regularizedResample();
   }
 }
 template <int D, int M>
