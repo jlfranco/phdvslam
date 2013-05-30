@@ -1,6 +1,7 @@
 #include <cmath>
 #include <vector>
 #include <iostream>
+#include <cassert>
 #include "opencv2/core/core.hpp"
 
 /* Classes */
@@ -288,6 +289,7 @@ class CPPHDParticleFilter {
     void basicResample();
     void resample(std::vector<cv::Vec<double, M> > measurements);
     void predict();
+    std::vector<cv::Vec<double, M> > regularize();
     void update(std::vector<cv::Vec<double, M> > measurements);
 };
 
@@ -335,6 +337,21 @@ double MVNormalPDF (cv::Vec<double, D> mean,
   double val = pow(2*M_PI, -d/2) * pow(cv::determinant(cov), -0.5) *
     exp( -0.5 * arg(0) );
   return val;
+}
+
+/* Draw a random sample from an empirical distribution characterized by
+ * a vector of weights; The sum of weights must add up to one but this
+ * is not verified */
+int sampleEmpirical (std::vector<double> & weights) {
+  double r = cv::randu<double>();
+  double l = weights[0];
+  int c = 0;
+  while(l < r){
+    l += weights[c];
+    c++;
+  }
+  assert(c <= weights.size()); // No segfaults please
+  return c;
 }
 
 /* This implementation is based on the method by Knuth. Perhaps inverse
@@ -1104,6 +1121,49 @@ void CPPHDParticleFilter<D, M> :: predict() {
     mBelief[i].mBias += noise[i];
     mBelief[i].predict();
   }
+}
+
+template <int D, int M>
+std::vector<cv::Vec<double, M> > CPPHDParticleFilter<D, M>::regularize() {
+  std::vector<cv::Vec<double, M> > biases;
+  std::vector<cv::Vec<double, M> > whitenedBiases;
+  std::vector<cv::Vec<double, M> > sampledBiases;
+  std::vector<double> normalizedWeights;
+  typename std::vector<cv::Vec<double, M> >::iterator it;
+  typename std::vector<GMPHDFilterParticle<D, M> >::iterator jt;
+  cv::Vec<double, M> sampleMean;
+  cv::Matx<double, M, M> sampleCov;
+  cv::Vec<double, M> zeros;
+  for (int i = 0; i < M; ++i) { zeros(i) = 0; }
+  double sumOfWeights;
+  for (jt = mBelief.begin(); jt != mBelief.end(); ++jt) {
+    biases.push_back(jt->mBias);
+    normalizedWeights.push_back(jt->mWeight);
+    sumOfWeights += jt->mWeight;
+  }
+  for (std::vector<double>::iterator kt = normalizedWeights.begin();
+      kt != normalizedWeights.end(); ++kt) {
+    *kt = *kt/sumOfWeights;
+  }
+  meanAndCovariance(biases, sampleMean, sampleCov);
+  cv::Matx<double, M, M> decomposedCovariance;
+  cv::Matx<double, M, M> invDecomposedCovariance;
+  bool decomposed = cholesky<M>(sampleCov, decomposedCovariance);
+  invDecomposedCovariance = decomposedCovariance.inv();
+  for (it = biases.begin(); it != biases.end(); ++it) {
+    whitenedBiases.push_back(invDecomposedCovariance * (*it));
+  }
+  // Taken from SMC Methods in Practice (Doucet 2001)
+  double bandWidth = 0.5*pow(4/(M+2), 1/(M+4))*pow(mBelief.size(),-1/(M+4));
+  std::vector<cv::Vec<double, M> > noise = sampleMVGaussian<M>(
+      zeros, cv::Matx<double, M, M>::zeros(), mBelief.size());
+  int index;
+  for (int i = 0; i < mBelief.size(); ++i) {
+    index = sampleEmpirical(normalizedWeights);
+    sampledBiases.push_back( (1/bandWidth) *
+        decomposedCovariance * ( whitenedBiases[index] + noise[i] ) );
+  }
+  return sampledBiases;
 }
 
 // This implements a simplified version (no adaptive tempering) version of
