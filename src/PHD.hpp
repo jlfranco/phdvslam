@@ -1211,7 +1211,17 @@ void CPPHDParticleFilter<D, M> :: resample(
       it->mWeight = pow(oldLikelihoods.back(), likelihoodPower);
     }
     normalizeWeights();
-    regularizedResample();
+    sampledBiases = regularizedBiases();
+    for (it = mBelief.begin(), jt = sampledBiases.begin(),
+        kt = oldLikelihoods.begin(); it != mBelief.end(); ++it, ++jt, ++kt) {
+      oldBias = it->mBias;
+      it->mBias = *jt;
+      newLikelihood = it->predictMeasurementLikelihood(measurements);
+      acceptProb = std::min(1., newLikelihood/(*kt));
+      if ((*kt != 0) && cv::randu<double>() > acceptProb){
+        it->mBias = oldBias;
+      }
+    }
   }
 }
 template <int D, int M>
