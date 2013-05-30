@@ -306,10 +306,10 @@ void testCpPHD(){
   cv::Matx<double, 2, 2> measNoise;
   cv::Matx<double, 2, 2> newElemCov;
   dynMatrix = cv::Matx<double, 2, 2>::eye();
-  procNoise << 1, 0, 0, 1;
+  procNoise << 0.25, 0, 0, 0.25;
   measMatrix = cv::Matx<double, 2, 2>::eye();
-  measNoise << 1, 0, 0, 1;
-  newElemCov << 1, 0, 0, 1;
+  measNoise << 0.2, 0, 0, 0.2;
+  newElemCov << 0.5, 0, 0, 0.5;
   LinearMotionModel<2> * CVMotionModel = 
     new LinearMotionModel<2>(dynMatrix, procNoise);
   LinearMeasurementModel<2, 2> * PMeasurementModel = 
@@ -345,16 +345,16 @@ void testParticleFilter() {
   cv::Matx<double, 2, 2> newElemCov;
   cv::Matx<double, 2, 2> particleCov;
   dynMatrix = cv::Matx<double, 2, 2>::eye();
-  procNoise << 0.1, 0, 0, 0.1;
+  procNoise << 0.001, 0, 0, 0.001;
   measMatrix = cv::Matx<double, 2, 2>::eye();
-  measNoise << 0.2, 0, 0, 0.2;
-  newElemCov << 1, 0, 0, 1;
+  measNoise << 0.001, 0, 0, 0.001;
+  newElemCov << 0.001, 0, 0, 0.001;
   particleCov << 0.2, 0, 0, 0.2;
   LinearMotionModel<2> CVMotionModel(dynMatrix, procNoise);
   LinearMeasurementModel<2, 2> PMeasurementModel(measMatrix, measNoise,
       newElemCov);
   GMPHDFilterParams filterParams = readFilterParams("params.txt");
-  CPPHDParticleFilter<2, 2> filter(50, particleCov, &CVMotionModel,
+  CPPHDParticleFilter<2, 2> filter(5, particleCov, &CVMotionModel,
      &PMeasurementModel, filterParams);
   std::vector<std::vector<cv::Vec<double, 2> > > measurements = 
     readMeasurements("../../Matlab/measurements.txt");
@@ -368,8 +368,10 @@ void testParticleFilter() {
     if (iteration > 0) {
       filter.predict();
     }
+    if (iteration > 0) {
+      filter.resample(*it);
+    }
     filter.update(*it);
-    filter.resample();
     bestFilter = std::max_element(
         filter.mBelief.begin(), filter.mBelief.end() )->mPHDFilter;
     estimatedBias.push_back(std::max_element(
@@ -392,10 +394,46 @@ void testParticleFilter() {
   biasFile.close();
 }
 
+void testPredictMOL() {
+  cv::Matx<double, 2, 2> dynMatrix;
+  cv::Matx<double, 2, 2> procNoise;
+  cv::Matx<double, 2, 2> measMatrix;
+  cv::Matx<double, 2, 2> measNoise;
+  cv::Matx<double, 2, 2> newElemCov;
+  cv::Matx<double, 2, 2> particleCov;
+  dynMatrix = cv::Matx<double, 2, 2>::eye();
+  procNoise << 0.1, 0, 0, 0.1;
+  measMatrix = cv::Matx<double, 2, 2>::eye();
+  measNoise << 0.2, 0, 0, 0.2;
+  newElemCov << 1, 0, 0, 1;
+  particleCov << 0.2, 0, 0, 0.2;
+  LinearMotionModel<2> * CVMotionModel =
+    new LinearMotionModel<2>(dynMatrix, procNoise);
+  LinearMeasurementModel<2, 2> * PMeasurementModel =
+    new LinearMeasurementModel<2, 2>(measMatrix, measNoise, newElemCov);
+  GMPHDFilterParams filterParams = readFilterParams("params.txt");
+  GMPHDFilter<2, 2> filter(CVMotionModel, PMeasurementModel, filterParams);
+  std::vector<std::vector<cv::Vec<double, 2> > > measurements = 
+    readMeasurements("../../Matlab/measurements.txt");
+  std::vector<std::vector<cv::Vec<double, 2> > >::iterator it;
+  double predictedMOL;
+  unsigned int iteration = 0;
+  for (it = measurements.begin(); it != measurements.end(); ++it) {
+    if (iteration > 0) {
+      filter.predict();
+    }
+    predictedMOL = filter.predictMeasurementLikelihood(*it);
+    filter.update(*it);
+    std::cout << "[" << iteration++ << "] Difference: " <<
+      predictedMOL - filter.getMultiObjectLikelihood() << "\n";
+  }
+}
+
 int main() {
 //  std::vector<std::vector<cv::Vec<double, 2> > > measurements = 
 //    readMeasurements("./meas.txt");
 //  printMeasurements(measurements);
+  //testParticleFilter();
   testParticleFilter();
   return 0;
 }

@@ -235,6 +235,8 @@ class GMPHDFilter {
     // Methods
     void predict();
     void update(std::vector<cv::Vec<double, M> >); // Includes birth
+    double predictMeasurementLikelihood(
+        std::vector<cv::Vec<double, M> > measurements);
     std::vector<cv::Vec<double, D> > getStateEstimate();
     // Parameters
     GMPHDFilterParams mParams;
@@ -255,6 +257,8 @@ class GMPHDFilterParticle {
         cv::Vec<double, M> bias);
     GMPHDFilterParticle(const GMPHDFilterParticle & src);
     // Methods
+    double predictMeasurementLikelihood(
+        std::vector<cv::Vec<double, M> > measurements);
     void predict();
     void update(std::vector<cv::Vec<double, M> > measurements); 
     // Operators
@@ -281,7 +285,8 @@ class CPPHDParticleFilter {
     std::vector<GMPHDFilterParticle<D, M> > mBelief;
     cv::Matx<double, M, M> mNoiseCovariance;
     void normalizeWeights();
-    void resample();
+    void basicResample();
+    void resample(std::vector<cv::Vec<double, M> > measurements);
     void predict();
     void update(std::vector<cv::Vec<double, M> > measurements);
 };
@@ -388,6 +393,40 @@ cv::Matx<double, 3, 3> RPYRotation(double roll, double pitch, double yaw) {
   -sin(roll) * cos(pitch),
   cos(roll) * cos(pitch) ;
   return rotation;
+}
+
+template <int M>
+void meanAndCovariance(std::vector<cv::Vec<double, M> > samples,
+    cv::Vec<double, M> & mean, cv::Matx<double, M, M> & cov) {
+  typename std::vector<cv::Vec<double, M> >::iterator it;
+  int N = samples.size();
+  mean = mean * 0.;
+  for (it = samples.begin(); it != samples.end(); ++it) {
+    mean = mean + *it;
+  }
+  mean = (1./N) * mean;
+  for (it = samples.begin(); it != samples.end(); ++it) {
+    *it = *it - mean;
+  }
+  cov = cv::Matx<double, M, M>::zeros();
+  for (it = samples.begin(); it != samples.end(); ++it) {
+    cov = cov + ((*it) * (it->t()));
+  }
+  cov = (1./(N-1)) * cov;
+  //cv::Mat demeanedSamples(M, N, CV_64F);
+  //cv::Mat tempCov(M, M, CV_64F);
+  //for (int i = 0; i < N; ++i) {
+  //  for (int j = 0; j < M; ++j) {
+  //    demeanedSamples.at<double>(j, i) = samples[i](j) - mean(j);
+  //  }
+  //}
+  //tempCov = (1./(N-1)) * demeanedSamples * demeanedSamples.t();
+  //for (int i = 0; i < M; ++i) {
+  //  for (int j = 0; j < M; ++j) {
+  //    cov(i, j) = tempCov.at<double>(i, j);
+  //  }
+  //}
+  //cov = cv::Matx<double, M, M>(tempCov);
 }
 
 /* * * * * * * * * *
@@ -884,6 +923,57 @@ void GMPHDFilter<D, M> :: update(
 }
 
 template <int D, int M>
+double GMPHDFilter<D, M> :: predictMeasurementLikelihood(
+    std::vector<cv::Vec<double, M> > measurements) {
+  double likelihood;
+  // Copy of prior weights
+  std::vector<double> priorWeights;
+  // Components for updated terms
+  std::vector<cv::Vec<double, M> > eta;
+  std::vector<cv::Matx<double, M, M> > S;
+  cv::Matx<double, M, M> R = mMeasurementModel->getMeasNoise();
+  cv::Matx<double, M, D> H = mMeasurementModel->getJacobian();
+  cv::Matx<double, D, D> ID = cv::Matx<double, D, D>::eye();
+  typename std::vector<WeightedGaussian<D> >::iterator it;
+  typename std::vector<cv::Vec<double, M> >::iterator jt;
+  // Compute exponential term of multi object likelihood
+  double sumOfWeights = 0;
+  for (it = mPHD.mComponents.begin(); it != mPHD.mComponents.end(); ++it) {
+    sumOfWeights += it->getWeight();
+    priorWeights.push_back(it->getWeight());
+  }
+  likelihood = exp(-1 * mParams.mProbDetection * sumOfWeights);
+  // Update previous weights and compute elements for update
+  for (it = mPHD.mComponents.begin(); it != mPHD.mComponents.end(); ++it) {
+    eta.push_back(H * it->getMean());
+    S.push_back(R + H * (it->getCov()) * H.t());
+  }
+  // Generate new Gaussian terms for each one of the measurements
+  double nWeight;
+  double denominator;
+  // Birth weight is determined as a function of clutter density and a factor
+  // of the trimming threshold.
+  double birthWeight = 1.1 * mParams.mClutterDensity * mParams.mTrimThreshold
+    / (1 - 1.1*mParams.mTrimThreshold);
+  WeightedGaussian<D> birthComponent;
+  cv::Vec<double, D> nMean;
+  for (jt = measurements.begin(); jt != measurements.end(); ++jt) {
+    // Add the birth weight to the likelihood factor
+    denominator = birthWeight;
+    for (int i = 0; i < priorWeights.size(); ++i) {
+      // Add the updated weight to the likelihood factor
+      denominator += mParams.mProbDetection * (priorWeights[i]) *
+          MVNormalPDF<M> (eta[i], S[i], *jt );
+    }
+    // Add the clutter density to the factor and integrate with the likelihood
+    // the likelihood
+    denominator += mParams.mClutterDensity;
+    likelihood *= denominator;
+  }
+  return likelihood;
+}
+
+template <int D, int M>
 std::vector<cv::Vec<double, D> > GMPHDFilter<D, M> :: getStateEstimate () {
   typename std::vector<WeightedGaussian<D> >::iterator it;
   std::vector<cv::Vec<double, D> > stateEstimate;
@@ -909,6 +999,17 @@ GMPHDFilterParticle <D, M> :: GMPHDFilterParticle(
   mPHDFilter = src.mPHDFilter;
   mWeight = src.mWeight;
   mBias = src.mBias;
+}
+
+template <int D, int M>
+double GMPHDFilterParticle<D, M> :: predictMeasurementLikelihood(
+    std::vector<cv::Vec<double, M> > measurements) {
+  std::vector<cv::Vec<double, M> > biasedMeasurements;
+  typename std::vector<cv::Vec<double, M> >::iterator it;
+  for (it = measurements.begin(); it != measurements.end(); ++it) {
+    biasedMeasurements.push_back(*it - mBias);
+  }
+  return mPHDFilter.predictMeasurementLikelihood(biasedMeasurements);
 }
 
 template <int D, int M>
@@ -966,38 +1067,29 @@ void CPPHDParticleFilter<D, M> :: normalizeWeights() {
 
 // Roulette resampling for the Particle PHD Filter
 template <int D, int M>
-void CPPHDParticleFilter<D, M> :: resample() {
+void CPPHDParticleFilter<D, M> :: basicResample() {
   typename std::vector<GMPHDFilterParticle<D, M> >::iterator it;
-  double squaredSum = 0;
-  for (it = mBelief.begin(); it != mBelief.end(); ++it) {
-    squaredSum += pow(it->mWeight, 2);
-  }
-  // Compare efficient number to half the number of particles
-  // to decide if resampling is necessary
-  if (1/squaredSum < 0.1*mBelief.size()) {
-    std::cout << "[RESAMPLING]\n";
-    double sumOfWeights = 0;
-    std::vector<GMPHDFilterParticle<D, M> > resampledBelief;
-    std::vector<GMPHDFilterParticle<D, M> > newBelief;
-    double location = cv::randu<double>();
-    double cumsum = 0;
-    double increment = 1./mBelief.size();
-    int j = 0;
-    for (int i = 0; i < mBelief.size(); ++i) {
-      while (cumsum < location) {
-        cumsum += mBelief[j].mWeight;
-        ++j;
-        if (j >= mBelief.size()){
-          j = 0;
-          cumsum = 0;
-          location -= 1;
-        }
+  double sumOfWeights = 0;
+  std::vector<GMPHDFilterParticle<D, M> > resampledBelief;
+  std::vector<GMPHDFilterParticle<D, M> > newBelief;
+  double location = cv::randu<double>();
+  double cumsum = 0;
+  double increment = 1./mBelief.size();
+  int j = 0;
+  for (int i = 0; i < mBelief.size(); ++i) {
+    while (cumsum < location) {
+      cumsum += mBelief[j].mWeight;
+      ++j;
+      if (j >= mBelief.size()){
+        j = 0;
+        cumsum = 0;
+        location -= 1;
       }
-      newBelief.push_back(mBelief[j]);
-      location += increment;
     }
-    mBelief = newBelief;
+    newBelief.push_back(mBelief[j]);
+    location += increment;
   }
+  mBelief = newBelief;
 }
 
 template <int D, int M>
@@ -1014,22 +1106,84 @@ void CPPHDParticleFilter<D, M> :: predict() {
   }
 }
 
+// This implements a simplified version (no adaptive tempering) version of
+// a particle filter with importance sampling with sequential correction 
+template <int D, int M>
+void CPPHDParticleFilter<D, M> :: resample(
+    std::vector<cv::Vec<double, M> > measurements) {
+  // This struct can be used to sort a vector of indices by comparing
+  // elements within the provided vector of doubles
+  typename std::vector<GMPHDFilterParticle<D, M> >::iterator it;
+  typename std::vector<cv::Vec<double, M> >::iterator jt;
+  std::vector<double>::iterator kt;
+  std::vector<cv::Vec<double, M> > weightedSample;
+  std::vector<cv::Vec<double, M> > sampledBiases;
+  std::vector<double> oldLikelihoods;
+  cv::Vec<double, M> sampleMean;
+  cv::Matx<double, M, M> sampleCov;
+  cv::Matx<double, M, M> scaledCov;
+  double covarianceProportion =2.;
+  int numberOfIterations = 4;
+  double likelihoodPower = 0;
+  double acceptanceProbability;
+  cv::Matx<double, M, M> unusedMatrix;
+  double acceptProb;
+  cv::Vec<double, M> oldBias;
+  double newLikelihood;
+  double proposalOld, proposalNew;
+  for (int i = 0; i < numberOfIterations; ++i) {
+    oldLikelihoods.clear();
+    likelihoodPower += 1./double(numberOfIterations);
+    for (it = mBelief.begin(); it != mBelief.end(); ++it) {
+      oldLikelihoods.push_back(it->predictMeasurementLikelihood(measurements));
+      it->mWeight = pow(oldLikelihoods.back(), likelihoodPower);
+    }
+    normalizeWeights();
+    basicResample();
+    weightedSample.clear();
+    for (it = mBelief.begin(); it != mBelief.end(); ++it) {
+      weightedSample.push_back((it->mWeight) * (it->mBias));
+      //weightedSample.push_back(it->mBias);
+    }
+    meanAndCovariance(weightedSample, sampleMean, sampleCov);
+    // If the covariance is positive definite, it is scaled and used to
+    // sample a new bias. Otherwise, the particle covariance is used to
+    // increase diversity.
+    if (cholesky<M>(covarianceProportion * sampleCov, unusedMatrix)) {
+      scaledCov = covarianceProportion * sampleCov;
+    } else {
+      // A small proportion of the noise covariance is used to avoid
+      // diverging greatly from the high-likelihood region
+      scaledCov = mNoiseCovariance;
+    }
+    sampledBiases = sampleMVGaussian<M>(sampleMean,
+      scaledCov, mBelief.size());
+    int ct = mBelief.size();
+    for (it = mBelief.begin(), jt = sampledBiases.begin(),
+        kt = oldLikelihoods.begin(); it != mBelief.end(); ++it, ++jt, ++kt) {
+      oldBias = it->mBias;
+      it->mBias = *jt;
+      newLikelihood = it->predictMeasurementLikelihood(measurements);
+      proposalOld = 1.; proposalNew = 1.;
+      //proposalOld = MVNormalPDF<M>(sampleMean,
+      //    scaledCov, oldBias);
+      //proposalNew = MVNormalPDF<M>(sampleMean,
+      //    scaledCov, *jt);
+      acceptProb = std::min(1.,
+          (proposalOld/proposalNew) * newLikelihood / (*kt));
+      if (cv::randu<double>() > acceptProb) {
+        it->mBias = oldBias;
+        ct--;
+      }
+    }
+    //std::cout << ct << " replacements\n";
+  }
+}
 template <int D, int M>
 void CPPHDParticleFilter<D, M> :: update(
-    std::vector<cv::Vec<double, M> > measurements){
+    std::vector<cv::Vec<double, M> > measurements) {
   typename std::vector<GMPHDFilterParticle<D, M> >::iterator it;
-  double sumOfWeights = 0;
-  // This loop is split in two so that parallelization can be added easily to
-  // the first part
   for (it = mBelief.begin(); it != mBelief.end(); ++it) {
     it->update(measurements);
   }
-  for (it = mBelief.begin(); it != mBelief.end(); ++it) {
-    sumOfWeights += it->mPHDFilter.getMultiObjectLikelihood();
-  }
-  for (it = mBelief.begin(); it != mBelief.end(); ++it) {
-    it->mWeight = (it->mPHDFilter.getMultiObjectLikelihood()) *
-      (it->mWeight) / sumOfWeights;
-  }
-  normalizeWeights();
 }
