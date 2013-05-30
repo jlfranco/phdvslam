@@ -1155,15 +1155,37 @@ std::vector<cv::Vec<double, M> > CPPHDParticleFilter<D, M>::regularizedBiases() 
     whitenedBiases.push_back(invDecomposedCovariance * (*it));
   }
   // Taken from SMC Methods in Practice (Doucet 2001)
-  double bandWidth = 0.5*pow(4/(M+2), 1/(M+4))*pow(mBelief.size(),-1/(M+4));
+  double bandWidth = pow(4/(M+2), 1/(M+4))*pow(mBelief.size(),-1/(M+4));
   std::vector<cv::Vec<double, M> > noise = sampleMVGaussian<M>(
       zeros, cv::Matx<double, M, M>::eye(), mBelief.size());
   int index;
+  // Copy copy copycat!
+  double location = cv::randu<double>();
+  double cumsum = 0;
+  double increment = 1./mBelief.size();
+  int j = 0;
   for (int i = 0; i < mBelief.size(); ++i) {
-    index = sampleEmpirical(normalizedWeights);
-    sampledBiases.push_back( (1/bandWidth) *
-        decomposedCovariance * ( whitenedBiases[index] + noise[i] ) );
+    while (cumsum < location) {
+      cumsum += normalizedWeights[j];
+      ++j;
+      if (j >= mBelief.size()){
+        j = 0;
+        cumsum = 0;
+        location -= 1;
+      }
+    }
+    sampledBiases.push_back(
+        mBelief[j].mBias + bandWidth*decomposedCovariance*noise[i]);
+    location += increment;
   }
+  // Copy copy copyquat
+  //for (int i = 0; i < mBelief.size(); ++i) {
+  //  index = sampleEmpirical(normalizedWeights);
+  //  sampledBiases.push_back(
+  //      mBelief[i].mBias + bandWidth*decomposedCovariance*noise[i]);
+    //sampledBiases.push_back( (1/bandWidth) *
+    //    decomposedCovariance * ( whitenedBiases[index] + noise[i] ) );
+  //}
   return sampledBiases;
 }
 
@@ -1194,8 +1216,10 @@ void CPPHDParticleFilter<D, M> :: resample(
   cv::Vec<double, M> sampleMean;
   cv::Matx<double, M, M> sampleCov;
   cv::Matx<double, M, M> scaledCov;
+  cv::Vec<double, M> small;
+  cv::Vec<double, M> large;
   double covarianceProportion =2.;
-  int numberOfIterations = 4;
+  int numberOfIterations = 15;
   double likelihoodPower = 0;
   double acceptanceProbability;
   cv::Matx<double, M, M> unusedMatrix;
@@ -1217,10 +1241,16 @@ void CPPHDParticleFilter<D, M> :: resample(
       oldBias = it->mBias;
       it->mBias = *jt;
       newLikelihood = it->predictMeasurementLikelihood(measurements);
-      acceptProb = std::min(1., newLikelihood/(*kt));
+      acceptProb = std::min(1., 0.25*newLikelihood/(*kt));
       if ((*kt != 0) && cv::randu<double>() > acceptProb){
         it->mBias = oldBias;
       }
+    }
+    for (int i = 0; i < mBelief.size(); ++i) {
+      small[0] = std::min(small[0], mBelief[i].mBias[0]);
+      small[1] = std::min(small[1], mBelief[i].mBias[1]);
+      large[0] = std::max(large[0], mBelief[i].mBias[0]);
+      large[1] = std::max(large[1], mBelief[i].mBias[1]);
     }
   }
 }
