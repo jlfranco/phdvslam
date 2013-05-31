@@ -347,14 +347,14 @@ void testParticleFilter() {
   dynMatrix = cv::Matx<double, 2, 2>::eye();
   procNoise << 0.001, 0, 0, 0.001;
   measMatrix = cv::Matx<double, 2, 2>::eye();
-  measNoise << 0.001, 0, 0, 0.001;
+  measNoise << 0.01, 0, 0, 0.01;
   newElemCov << 0.001, 0, 0, 0.001;
-  particleCov << 0.2, 0, 0, 0.2;
+  particleCov << 0.1, 0, 0, 0.1;
   LinearMotionModel<2> CVMotionModel(dynMatrix, procNoise);
   LinearMeasurementModel<2, 2> PMeasurementModel(measMatrix, measNoise,
       newElemCov);
   GMPHDFilterParams filterParams = readFilterParams("params.txt");
-  CPPHDParticleFilter<2, 2> filter(5, particleCov, &CVMotionModel,
+  CPPHDParticleFilter<2, 2> filter(400, particleCov, &CVMotionModel,
      &PMeasurementModel, filterParams);
   std::vector<std::vector<cv::Vec<double, 2> > > measurements = 
     readMeasurements("../../Matlab/measurements.txt");
